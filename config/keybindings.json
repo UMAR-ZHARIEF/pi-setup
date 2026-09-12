@@ -6,5 +6,5 @@
   "app.message.copy": ["ctrl+c", "ctrl+x"],
   "tui.editor.cursorWordLeft": ["ctrl+left"],
   "tui.editor.cursorWordRight": ["ctrl+right"],
-  "tui.editor.deleteWordBackward": ["ctrl+backspace"]
+  "tui.editor.deleteWordBackward": ["ctrl+backspace", "ctrl+w"]
 }

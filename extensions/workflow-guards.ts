@@ -48,13 +48,13 @@ function deletionVerb(command: string): string | undefined {
 	const inlineInterpreter = /(?:^|[^\w-])(py|python\d*|pwsh|powershell|node|perl|ruby)(\.exe)?\b[^\r\n]*\s(-c|-Command|-e)\b/i.test(command)
 	const input = inlineInterpreter ? command : stripped
 	const patterns = [
-		/(?:^|[^\w.-])(Remove-Item|rmdir|del|erase|rd|rm|unlink)(?![\w-])/i,
-		/(?:^|[^\w.-])Clear-Content(?![\w-])/i,
+		/(?:^|[;&|]|\$\(|\n)\s*(Remove-Item|rmdir|del|erase|rd|rm|unlink)(?![\w-])/i,
+		/(?:^|[;&|]|\$\(|\n)\s*Clear-Content(?![\w-])/i,
 		/\[\s*(System\.)?IO\.(File|Directory)\s*\]::\s*Delete/i,
 		/shutil\.rmtree|os\.remove|os\.unlink|os\.rmdir|pathlib.*\.unlink/i,
 		/\.\s*(rmSync|rmdirSync|unlinkSync)\s*\(|fs\s*\.\s*(promises\s*\.\s*)?(rm|rmdir|unlink)(Sync)?\s*\(|(?:^|[^\w-])rimraf(?![\w-])/i,
 		/(?:^|[^\w-])-delete(?![\w-])/i,
-		/(?:^|[^\w.-])git\s+clean(?![\w-])/i,
+		/(?:^|[;&|]|\$\(|\n)\s*git\s+clean(?![\w-])/i,
 	]
 	return patterns.map((pattern) => input.match(pattern)?.[0]?.trim()).find(Boolean)
 }

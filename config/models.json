@@ -1,0 +1,10 @@
+{
+  "providers": {
+    "zai": {
+      "modelOverrides": {
+        "glm-5.3": { "compat": { "cacheControlFormat": "anthropic" } },
+        "glm-5.3-flash": { "compat": { "cacheControlFormat": "anthropic" } }
+      }
+    }
+  }
+}

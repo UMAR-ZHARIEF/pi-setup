@@ -1,0 +1,12 @@
+{
+  "name": "pi-setup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal Pi harness: guards, skills, prompts, bootstrap",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"],
+    "prompts": ["./prompts"]
+  }
+}

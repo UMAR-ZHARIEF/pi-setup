@@ -1,0 +1,7 @@
+{
+  "tui.editor.undo": ["ctrl+z", "ctrl+-", "super+z"],
+  "tui.editor.cursorLineStart": ["home", "ctrl+home"],
+  "app.clear": [],
+  "tui.input.copy": ["ctrl+c"],
+  "app.message.copy": ["ctrl+c", "ctrl+x"]
+}

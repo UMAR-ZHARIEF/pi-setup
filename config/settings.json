@@ -1,0 +1,30 @@
+{
+  "defaultProvider": "zai",
+  "defaultModel": "glm-5.3",
+  "defaultThinkingLevel": "high",
+  "modelThinkingLevels": {
+    "zai/glm-5.3": "high",
+    "zai/glm-5.3-flash": "high"
+  },
+  "hideThinkingBlock": false,
+  "defaultTools": [
+    "read",
+    "bash",
+    "powershell",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls"
+  ],
+  "enableInstallTelemetry": false,
+  "packages": [
+    "npm:pi-mcp-adapter@2.33.0",
+    "npm:pi-background-tasks@2.5.0",
+    "npm:pi-subagents@0.66.0",
+    "git:github.com/UMAR-ZHARIEF/pi-setup"
+  ],
+  "subagents": {
+    "defaultModel": "zai/glm-5.3-flash"
+  }
+}

@@ -3,5 +3,8 @@
   "tui.editor.cursorLineStart": ["home", "ctrl+home"],
   "app.clear": [],
   "tui.input.copy": ["ctrl+c"],
-  "app.message.copy": ["ctrl+c", "ctrl+x"]
+  "app.message.copy": ["ctrl+c", "ctrl+x"],
+  "tui.editor.cursorWordLeft": ["ctrl+left"],
+  "tui.editor.cursorWordRight": ["ctrl+right"],
+  "tui.editor.deleteWordBackward": ["ctrl+backspace"]
 }

@@ -7,9 +7,6 @@
   "pi": {
     "extensions": ["./extensions"],
     "skills": ["./skills"],
-    "prompts": ["./prompts"],
-    "subagents": {
-      "agents": ["./agents"]
-    }
+    "prompts": ["./prompts"]
   }
 }

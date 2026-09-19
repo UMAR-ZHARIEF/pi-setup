@@ -11,6 +11,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +36,10 @@ function recycleHelperText(): string {
 	const override = process.env.PI_RECYCLE_HELPER
 	if (override) return `powershell -NoProfile -File "${override}" <path> [-Force] [-DryRun]`
 	if (process.platform === "win32") {
+		const userHelper = join(homedir(), "Scripts", "recycle.ps1")
+		if (existsSync(userHelper)) {
+			return `powershell -NoProfile -ExecutionPolicy Bypass -File "${userHelper}" <path> [-Force] [-DryRun]`
+		}
 		const helperPath = join(dirname(fileURLToPath(import.meta.url)), "..", "helpers", "recycle.ps1")
 		return `powershell -NoProfile -ExecutionPolicy Bypass -File "${helperPath}" <path> [-Force] [-DryRun]`
 	}

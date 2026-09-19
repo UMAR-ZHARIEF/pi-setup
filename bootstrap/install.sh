@@ -37,12 +37,25 @@ step "Copying template configs into $HOME/.pi/agent (existing files are never ov
 config_dir="$HOME/.pi/agent"
 mkdir -p "$config_dir"
 template_dir="$(cd "$(dirname "$0")/.." && pwd)/config"
-for file in settings.json keybindings.json models.json mcp.json; do
+for file in settings.json keybindings.json models.json mcp.json APPEND_SYSTEM.md; do
     if [ -e "$config_dir/$file" ]; then
         echo "SKIP: $file already exists in $config_dir, leaving it untouched."
     else
         cp "$template_dir/$file" "$config_dir/$file"
         echo "COPIED: $file"
+    fi
+done
+
+step "Installing helper scripts into $HOME/Scripts (existing files are never overwritten)"
+scripts_dir="$HOME/Scripts"
+mkdir -p "$scripts_dir"
+helper_dir="$(cd "$(dirname "$0")/.." && pwd)/helpers"
+for name in recycle.ps1 serve.ps1; do
+    if [ -e "$scripts_dir/$name" ]; then
+        echo "SKIP: $name already exists in $scripts_dir, leaving it untouched."
+    else
+        cp "$helper_dir/$name" "$scripts_dir/$name"
+        echo "COPIED: $name"
     fi
 done
 

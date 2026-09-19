@@ -25,6 +25,32 @@
     "git:github.com/UMAR-ZHARIEF/pi-setup"
   ],
   "subagents": {
-    "defaultModel": "zai/glm-5.3-flash"
+    "defaultModel": "zai/glm-5.3-flash",
+    "agentOverrides": {
+      "worker": {
+        "defaultContext": "fresh",
+        "thinking": "high"
+      },
+      "researcher": {
+        "defaultContext": "fresh",
+        "thinking": "high"
+      },
+      "reviewer": {
+        "defaultContext": "fresh",
+        "thinking": "high"
+      },
+      "scout": {
+        "defaultContext": "fresh",
+        "thinking": "high"
+      },
+      "oracle": {
+        "defaultContext": "fresh",
+        "thinking": "high"
+      },
+      "delegate": {
+        "defaultContext": "fresh",
+        "thinking": "high"
+      }
+    }
   }
 }

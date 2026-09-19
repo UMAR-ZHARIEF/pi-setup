@@ -41,7 +41,7 @@ Step "Copying template configs into $HOME\.pi\agent (existing files are never ov
 $configDir = Join-Path $HOME ".pi\agent"
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 $templateDir = Join-Path $PSScriptRoot "..\config"
-$files = @("settings.json", "keybindings.json", "models.json", "mcp.json")
+$files = @("settings.json", "keybindings.json", "models.json", "mcp.json", "APPEND_SYSTEM.md")
 foreach ($file in $files) {
     $source = Join-Path $templateDir $file
     $target = Join-Path $configDir $file
@@ -50,6 +50,21 @@ foreach ($file in $files) {
     } else {
         Copy-Item -LiteralPath $source -Destination $target
         Write-Host "COPIED: $file"
+    }
+}
+
+Step "Installing helper scripts into $HOME\Scripts (existing files are never overwritten)"
+$scriptsDir = Join-Path $HOME "Scripts"
+New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null
+$helperDir = Join-Path $PSScriptRoot "..\helpers"
+foreach ($helper in @("recycle.ps1", "serve.ps1")) {
+    $source = Join-Path $helperDir $helper
+    $target = Join-Path $scriptsDir $helper
+    if (Test-Path -LiteralPath $target) {
+        Write-Host "SKIP: $helper already exists in $scriptsDir, leaving it untouched."
+    } else {
+        Copy-Item -LiteralPath $source -Destination $target
+        Write-Host "COPIED: $helper"
     }
 }
 

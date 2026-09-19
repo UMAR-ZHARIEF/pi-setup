@@ -1,6 +1,6 @@
 # pi-setup
 
-Personal Pi harness package. It bundles the workflow guard extension, the file removal helper, prompts, and bootstrap scripts so the same setup can be installed on any machine.
+Personal Pi harness package. It bundles the workflow guard extension, the recycle and serve helpers, the vision agent, the session rules template (APPEND_SYSTEM.md), prompts, and bootstrap scripts so the same setup can be installed on any machine.
 
 ## New machine setup
 
@@ -8,6 +8,10 @@ Requires Node 22.19 or newer.
 
 - Windows: run `bootstrap\install.ps1`
 - Linux: run `bootstrap\install.sh`
+
+## Helper scripts
+
+The bootstrap copies `helpers/recycle.ps1` and `helpers/serve.ps1` into `~/Scripts`, and the rules template into `~/.pi/agent/APPEND_SYSTEM.md` (existing files are never overwritten). On Windows the guard extension prefers `~/Scripts/recycle.ps1` over the bundled copy when it exists; `PI_RECYCLE_HELPER` still wins over both.
 
 ## Environment variables
 

@@ -20,9 +20,10 @@
   "enableInstallTelemetry": false,
   "packages": [
     "npm:pi-mcp-adapter@2.33.0",
-    "npm:pi-background-tasks@2.5.0",
-    "npm:pi-subagents@0.66.0",
-    "git:github.com/UMAR-ZHARIEF/pi-setup"
+    "npm:pi-background-tasks@2.6.2",
+    "npm:pi-subagents@0.71.0",
+    "git:github.com/UMAR-ZHARIEF/pi-setup",
+    "npm:pi-web-access@0.31.0"
   ],
   "subagents": {
     "defaultModel": "zai/glm-5.3-flash",

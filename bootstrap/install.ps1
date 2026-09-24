@@ -34,8 +34,8 @@ if ($actual -lt $required) {
 }
 Write-Host "Node $nodeVersion is OK."
 
-Step "Installing pi coding agent 0.85.1 globally (scripts ignored)"
-npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@0.85.1"
+Step "Installing pi coding agent 0.86.1 globally (scripts ignored)"
+npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@0.86.1"
 
 Step "Copying template configs into $HOME\.pi\agent (existing files are never overwritten)"
 $configDir = Join-Path $HOME ".pi\agent"
@@ -75,8 +75,9 @@ setx PI_BG_DISABLE_UPDATE_CHECK 1
 
 Step "Installing pinned pi packages"
 pi install npm:pi-mcp-adapter@2.33.0
-pi install npm:pi-background-tasks@2.5.0
-pi install npm:pi-subagents@0.66.0
+pi install npm:pi-background-tasks@2.6.2
+pi install npm:pi-subagents@0.71.0
+pi install npm:pi-web-access@0.31.0
 # Pinning the repo install to a commit is optional; see the README.
 pi install git:github.com/UMAR-ZHARIEF/pi-setup
 

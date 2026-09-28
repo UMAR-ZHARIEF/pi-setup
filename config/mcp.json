@@ -18,6 +18,17 @@
         "Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}",
         "X-MCP-Toolsets": "context,repos,issues,pull_requests"
       }
+    },
+    "vision": {
+      "command": "npx",
+      "args": ["-y", "image-vision-mcp@1.0.7"],
+      "env": {
+        "VISION_API_KEY": "${VISION_API_KEY}",
+        "VISION_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+        "VISION_MODEL": "glm-5.3-flash"
+      },
+      "lifecycle": "lazy-keep-alive",
+      "requestTimeoutMs": 180000
     }
   }
 }

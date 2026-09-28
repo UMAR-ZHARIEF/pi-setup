@@ -18,6 +18,7 @@ The bootstrap copies `helpers/recycle.ps1` and `helpers/serve.ps1` into `~/Scrip
 - `PI_RECYCLE_HELPER`: optional override. Full path to a recycle helper script. When set, the guard extension points at it instead of the bundled one.
 - `BRAVE_PATH`: full path to the Brave browser executable, for when it is not in the default location.
 - `GITHUB_PERSONAL_ACCESS_TOKEN`: token used for GitHub access.
+- `VISION_API_KEY`: key for the vision MCP server (image descriptions for text-only chats, through the zai coding endpoint with glm-5.3-flash). The mcp.json template reads it via `${VISION_API_KEY}`; set it as a user environment variable, for example `setx VISION_API_KEY <key>`.
 
 ## Secrets
 

@@ -30,7 +30,8 @@
     "agentOverrides": {
       "worker": {
         "defaultContext": "fresh",
-        "thinking": "high"
+        "thinking": "high",
+        "tools": "inherit"
       },
       "researcher": {
         "defaultContext": "fresh",

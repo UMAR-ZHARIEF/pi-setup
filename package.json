@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "description": "Personal Pi harness: guards, skills, prompts, bootstrap",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "pi": {
-    "extensions": ["./extensions"],
-    "skills": ["./skills"],
-    "prompts": ["./prompts"],
-    "subagents": {
-      "agents": ["./agents"]
-    }
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
   }
 }

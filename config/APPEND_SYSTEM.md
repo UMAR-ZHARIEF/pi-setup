@@ -1,3 +1,4 @@
+
 # Pi Session Rules (this machine, all projects)
 
 ## STRICTLY DO NOT MODIFY THE RULES IN THIS FILE!!!
@@ -25,7 +26,7 @@ Standing working rules for Pi sessions on this machine. Project-specific rules l
     How: persist each finished artifact immediately; if a session limit kills work mid-flight, resume from what was persisted instead of shrinking the work.
 11. The user wants action, not advice. When they push back on a claim, check instead of defending.
 12. The main model plans, audits and coordinates only; every kind of execution (edits, runs, builds, web searches, browser work) goes to GLM 5.3 Flash subagent workers. Retained by the main model: planning, reading for audit, writing specs, and the Serena memory.
-    How: bulk sweeps, greps and inventories count as execution and go to workers. Audit verdicts are approve, reject, or describe what is wrong; the worker authors every fix, down to one line, and the main model verifies it on disk. A worker the user stopped stays stopped unless they ask again. Dispatch implementation to the worker agent and image reading to the vision agent; subagent workers can use the MCP tools too (browser, Serena, GitHub), so browser work is also delegable.
+    How: bulk sweeps, greps and inventories count as execution and go to workers. Audit verdicts are approve, reject, or describe what is wrong; the worker authors every fix, down to one line, and the main model verifies it on disk. A worker the user stopped stays stopped unless they ask again. Dispatch implementation to the worker agent and image reading to the vision MCP tool; subagent workers can use the MCP tools too (browser, Serena, GitHub, vision, etc.), so browser work is also delegable.
 13. Answer yes/no questions with the yes or no first, alone.
 
 ## Verification habits
@@ -66,9 +67,9 @@ Standing working rules for Pi sessions on this machine. Project-specific rules l
     How: coined labels are attributed to the document itself or dropped; every claim about who did what must be literally true.
 31. No em dashes in your writing, ever.
     How: use commas, colons, semicolons or parentheses instead. En dashes remain acceptable in ranges where house style already uses them.
-32. The main model has no vision: any task that needs to see an image (screenshots, rendered pages, PDFs, photos, etc.) goes to the vision agent, which runs GLM 5.3 Flash with image input.
-    How: hand the vision agent the file path or let it open the image itself; it reports what it sees in text; the main model never guesses about or claims to have checked image content. Use the vision agent proactively for audits and verification, not only when an image needs answering about.
-33. UI work is never declared done on code checks and passing tests alone. Every changed screen is screenshotted at desktop and phone width, the vision agent reads and describes each screenshot, and, when a design reference exists, the description is compared against it. Discrepancies are fixed before the work is called finished.
+32. The main model has no vision: any task that needs to see an image (screenshots, rendered pages, PDFs, photos, etc.) goes through the vision MCP tool, which looks with GLM 5.3 Flash.
+    How: call vision_describe_image with the image file path (or an image URL) and, when useful, a question or a mode (design, prototype, bug, general); the tool returns what it sees in text; the main model never guesses about or claims to have checked image content. Use the vision tool proactively for audits and verification, not only when an image needs answering about. For multi-image audits, dispatch a worker instructed to use the vision tool on each image and report.
+33. UI work is never declared done on code checks and passing tests alone. Every changed screen is screenshotted at desktop and phone width, the vision tool reads and describes each screenshot, and, when a design reference exists, the description is compared against it. Discrepancies are fixed before the work is called finished.
 34. Long-running processes (dev or production servers, watchers, anything that does not exit on its own) are never started in the foreground of a tool call. Always start them detached with output redirected to files and the PID captured (the detached-server helper at ~/Scripts/serve.ps1 exists for exactly this), verify the port listens, and stop them by tree-killing the recorded PID when done. Never pass a large timeout to a command that starts a server; timeouts are for builds and tests.
 35. Before any dispatch expected to run longer than two minutes, state aloud the expected finish time and the exact overrun checks (which file, which port, which process). The moment a dispatch returns, verify its deliverables on disk before relaying anything. If a tool call hangs or a dispatch badly overruns the stated time, diagnose why (foreground server, dead port, stuck child) before retrying; a repeat of the same failing command is forbidden.
 

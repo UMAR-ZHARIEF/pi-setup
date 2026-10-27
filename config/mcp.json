@@ -2,14 +2,24 @@
   "mcpServers": {
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest", "--isolated"],
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--isolated",
+        "--caps=pdf,testing,network,storage,devtools"
+      ],
       "env": {
         "PLAYWRIGHT_MCP_EXECUTABLE_PATH": "${BRAVE_PATH}"
       }
     },
     "serena": {
       "command": "serena",
-      "args": ["start-mcp-server", "--context", "ide", "--project-from-cwd"]
+      "args": [
+        "start-mcp-server",
+        "--context",
+        "ide",
+        "--project-from-cwd"
+      ]
     },
     "github": {
       "url": "https://api.githubcopilot.com/mcp/",
@@ -21,7 +31,10 @@
     },
     "vision": {
       "command": "npx",
-      "args": ["-y", "image-vision-mcp@1.0.7"],
+      "args": [
+        "-y",
+        "image-vision-mcp@1.0.7"
+      ],
       "env": {
         "VISION_API_KEY": "${VISION_API_KEY}",
         "VISION_BASE_URL": "https://api.z.ai/api/coding/paas/v4",

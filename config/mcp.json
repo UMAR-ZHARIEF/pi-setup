@@ -12,6 +12,42 @@
         "PLAYWRIGHT_MCP_EXECUTABLE_PATH": "${BRAVE_PATH}"
       }
     },
+    "playwright2": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--isolated",
+        "--caps=pdf,testing,network,storage,devtools"
+      ],
+      "env": {
+        "PLAYWRIGHT_MCP_EXECUTABLE_PATH": "${BRAVE_PATH}"
+      }
+    },
+    "playwright3": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--isolated",
+        "--caps=pdf,testing,network,storage,devtools"
+      ],
+      "env": {
+        "PLAYWRIGHT_MCP_EXECUTABLE_PATH": "${BRAVE_PATH}"
+      }
+    },
+    "playwright4": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--isolated",
+        "--caps=pdf,testing,network,storage,devtools"
+      ],
+      "env": {
+        "PLAYWRIGHT_MCP_EXECUTABLE_PATH": "${BRAVE_PATH}"
+      }
+    },
     "serena": {
       "command": "serena",
       "args": [

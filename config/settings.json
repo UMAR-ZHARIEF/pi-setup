@@ -1,6 +1,7 @@
 {
   "defaultProvider": "zai",
   "defaultModel": "glm-5.3",
+  "theme": "sakura-dusk",
   "defaultThinkingLevel": "high",
   "modelThinkingLevels": {
     "zai/glm-5.3": "high",

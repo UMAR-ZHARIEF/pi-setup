@@ -46,6 +46,18 @@ for file in settings.json keybindings.json models.json mcp.json APPEND_SYSTEM.md
     fi
 done
 
+step "Copying the sakura-dusk theme into $config_dir/themes (existing files are never overwritten)"
+themes_dir="$config_dir/themes"
+mkdir -p "$themes_dir"
+for theme in sakura-dusk.json; do
+    if [ -e "$themes_dir/$theme" ]; then
+        echo "SKIP: $theme already exists in $themes_dir, leaving it untouched."
+    else
+        cp "$template_dir/themes/$theme" "$themes_dir/$theme"
+        echo "COPIED: themes/$theme"
+    fi
+done
+
 step "Installing helper scripts into $HOME/Scripts (existing files are never overwritten)"
 scripts_dir="$HOME/Scripts"
 mkdir -p "$scripts_dir"

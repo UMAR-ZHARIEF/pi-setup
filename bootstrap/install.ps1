@@ -53,6 +53,20 @@ foreach ($file in $files) {
     }
 }
 
+Step "Copying the sakura-dusk theme into $configDir\themes (existing files are never overwritten)"
+$themesDir = Join-Path $configDir "themes"
+New-Item -ItemType Directory -Force -Path $themesDir | Out-Null
+foreach ($theme in @("sakura-dusk.json")) {
+    $source = Join-Path $templateDir "themes\$theme"
+    $target = Join-Path $themesDir $theme
+    if (Test-Path -LiteralPath $target) {
+        Write-Host "SKIP: $theme already exists in $themesDir, leaving it untouched."
+    } else {
+        Copy-Item -LiteralPath $source -Destination $target
+        Write-Host "COPIED: themes\$theme"
+    }
+}
+
 Step "Installing helper scripts into $HOME\Scripts (existing files are never overwritten)"
 $scriptsDir = Join-Path $HOME "Scripts"
 New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null

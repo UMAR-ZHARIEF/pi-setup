@@ -13,6 +13,10 @@ Requires Node 22.19 or newer.
 
 The bootstrap copies `helpers/recycle.ps1` and `helpers/serve.ps1` into `~/Scripts`, and the rules template into `~/.pi/agent/APPEND_SYSTEM.md` (existing files are never overwritten). On Windows the guard extension prefers `~/Scripts/recycle.ps1` over the bundled copy when it exists; `PI_RECYCLE_HELPER` still wins over both.
 
+## Theme
+
+The sakura-dusk theme ships in `config\themes` and is selected by the settings template.
+
 ## Environment variables
 
 - `PI_RECYCLE_HELPER`: optional override. Full path to a recycle helper script. When set, the guard extension points at it instead of the bundled one.

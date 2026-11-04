@@ -44,6 +44,38 @@ These three keys must be present in the VS Code user settings file
    Dark theme is active, so the Pi sakura-dusk theme panels sit on the
    correct canvas color.
 
+## VS Code keybindings (User keybindings.json)
+
+The terminal scroll keybindings live in the VS Code user keybindings file
+(AppData/Roaming/Code/User/keybindings.json). All six entries below are
+User keybindings scoped with "when": "terminalFocus", so they only apply
+while the integrated terminal has focus. To recreate them on a fresh
+machine, add any missing rows to the JSON array in that file, before the
+closing bracket. Only the very last entry in the array has no trailing
+comma.
+
+One line per press, added 2026-11-04:
+
+  { "key": "alt+pageup", "command": "workbench.action.terminal.scrollUp", "when": "terminalFocus" },
+  { "key": "alt+pagedown", "command": "workbench.action.terminal.scrollDown", "when": "terminalFocus" }
+
+Jump to the very top, or back to the live prompt:
+
+  { "key": "alt+home", "command": "workbench.action.terminal.scrollToTop", "when": "terminalFocus" },
+  { "key": "alt+end", "command": "workbench.action.terminal.scrollToBottom", "when": "terminalFocus" }
+
+Hop between command prompts:
+
+  { "key": "alt+shift+pageup", "command": "workbench.action.terminal.scrollToPreviousCommand", "when": "terminalFocus" },
+  { "key": "alt+shift+pagedown", "command": "workbench.action.terminal.scrollToNextCommand", "when": "terminalFocus" }
+
+Notes:
+
+- Plain Page Up and Page Down are deliberately left to terminal
+  applications; this file does not bind them in VS Code.
+- The four alt+home, alt+end and alt+shift chords have no default VS Code
+  binding, so they cannot clash with anything built in.
+
 ## Windows Terminal settings
 
 In Windows Terminal (Settings, profiles, defaults), set:

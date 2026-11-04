@@ -35,9 +35,21 @@ Two honest limitations remain, both pi-side:
 - **Both shells deny**: any redirect (`>`, `>>`, `2>`, `<`), command substitution (`$(...)` or backticks), subshell parentheses, variables (`$` followed by a letter), script blocks (`{`, `}`, a lone `&`, or `Invoke-Expression`), and `git -C`. Quoting is not parsed, so anything unparsed, empty, or unknown is denied.
 - **Subagents**: the pi-subagents dispatch tool is named `subagent` and carries the agent name in its `agent` parameter. In plan mode only `scout`, `researcher`, `reviewer`, `oracle`, `delegate` are allowed; `worker`, unknown names, and a missing name are denied with a reason that points at build mode.
 - **Own tools**: `plan_question` is allowed in plan mode; `plan_exit` is allowed only in plan mode and is denied in build mode.
-- **Everything else** goes through the rule engine (`evaluate`: last matching rule wins). The built-in rule set opens with a catch-all `ask` rule followed by specific overrides: the read-only builtins `read`, `grep`, `find`, and `ls` are allowed; unknown tools (including MCP tools) fall through to the catch-all and therefore prompt in interactive sessions; with no UI (one-shot/print runs) `ask` fails closed and blocks the call. A specific unknown tool can be allowed permanently through `customRules` (see the config file below). The hard gates (plan paths, shell allowlists, subagent names) remain non-overridable.
+- **Everything else** goes through the rule engine (`evaluate`: last matching rule wins). The built-in rule set opens with a catch-all `ask` rule followed by specific overrides: the read-only builtins `read`, `grep`, `find`, and `ls` are allowed; unknown tools fall through to the catch-all and therefore prompt in interactive sessions (MCP tool-server calls are classified before this, see the MCP tool tiers below); with no UI (one-shot/print runs) `ask` fails closed and blocks the call. A specific unknown tool can be allowed permanently through `customRules` (see the config file below). The hard gates (plan paths, shell allowlists, subagent names) remain non-overridable.
 
 `plan_exit` asks the user to confirm the switch; on approval the extension switches to build mode and injects the adapted build-switch prompt plus the instruction to execute the approved plan. Entering plan mode injects the adapted read-only reminder each turn, mentioning the `.pi/plans/` convention and the research-only dispatch rule. Injected reminders and build-switch messages persist in the transcript exactly as sent (see the mode lifecycle section above).
+
+### MCP tool tiers
+
+MCP tool-server calls (the `mcp__<server>` namespace proxies) are classified by sub-command before the generic rules run. The principle: in plan mode, a call that mutates state is denied outright with a switch-to-build message, never a permission popup; only genuinely unknown tools (unknown server or unknown sub-command) fall through to the ask path, which fails closed to deny when there is no UI.
+
+- **Allowed silently**: reads and the whole browser. Every tool on every playwright server passes, viewing and interactions alike, plus read-tier sub-commands such as serena `find_symbol`, github `get_file_contents`, supabase `list_tables`, and photoshop `get_layers`.
+- **Denied outright**: memory, code, repository, database, and document mutations, for example serena `write_memory` or `edit_memory`, github `push_files` or `create_pull_request`, supabase `execute_sql` or `create_project`, illustrator `save_document` or `export`, photoshop `save_psd` or `undo`.
+- **Ask**: anything not on a tier list. In interactive sessions this prompts; `customRules` can still allow or deny these specific names, and in headless runs ask fails closed to deny.
+
+The built-in allow and deny verdicts for MCP calls are a hard gate that `customRules` cannot override; only the ask tier still honors them. Tier lists enumerate exact names from the live adapter inventory (`mcp-cache.json`), so an unlisted name can never silently classify as a read. User decision 2026-11-05: all browser tools, interactions included, are allowed in plan mode, so research browsing is never interrupted.
+
+Caveat: if a future pi-mcp-adapter config enables flattened direct tool registration (`directTools`) instead of namespace proxies, calls would no longer arrive as `mcp__<server>`, the classification would not see them, and the tier lists would need revisiting.
 
 ## Config file
 

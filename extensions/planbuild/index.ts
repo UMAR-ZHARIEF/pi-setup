@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { evaluate, mergeRuleSets, type Rule } from "./engine.ts";
+import { classifyMcpCall, extractSubtool } from "./classify.ts";
 import { inspectBashCommand, inspectPowershellCommand, loadExtraSafeCommands } from "./shellgate.ts";
 import { deriveModeForTurn, deriveTurnMode, MODE_ENTRY_TYPE, type Mode } from "./modelifecycle.ts";
 
@@ -363,6 +364,27 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 				};
 			}
 			return;
+		}
+
+		// MCP tool-server calls arrive as namespace proxies: toolName "mcp__<server>",
+		// input envelope {tool, args} (pi-mcp-adapter namespace-tools.ts; input.tool may
+		// be the bare server tool name or a server-prefixed candidate spelling, both
+		// normalized in classify.ts). Classified before the catch-all: known reads pass
+		// silently, known mutations hard-deny with the switch message (never a popup),
+		// and only unknown servers or sub-tools fall through to the ask path below.
+		if (event.toolName.startsWith("mcp__")) {
+			const server = event.toolName.slice("mcp__".length);
+			const subtool = extractSubtool(input);
+			const verdict = classifyMcpCall(server, subtool);
+			if (verdict.action === "allow") return;
+			if (verdict.action === "deny") {
+				return {
+					block: true,
+					reason: `Plan mode: ${event.toolName}.${subtool ?? "(unknown sub-tool)"} changes state rather than reading it. Switch to build mode with /mode build.`,
+				};
+			}
+			// ask: fall through to the catch-all evaluation (custom rules may still
+			// allow or deny; otherwise the interactive popup asks, headless denies).
 		}
 
 		const action = evaluate(event.toolName, subjectFor(input), rules());

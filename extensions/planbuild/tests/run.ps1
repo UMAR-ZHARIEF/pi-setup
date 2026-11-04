@@ -32,6 +32,8 @@ if ($major -gt 22 -or ($major -eq 22 -and $minor -ge 6)) {
     $results["modelifecycle.test.ts"] = ($LASTEXITCODE -eq 0)
     & node @flags .\classify.test.ts
     $results["classify.test.ts"] = ($LASTEXITCODE -eq 0)
+    & node @flags .\timeout.test.ts
+    $results["timeout.test.ts"] = ($LASTEXITCODE -eq 0)
 }
 else {
     Write-Host "mode: npx esbuild compile, then node --test"
@@ -44,14 +46,19 @@ else {
     $outEngineTest = Join-Path $outDir "engine.test.cjs"
     $outShellgateTest = Join-Path $outDir "shellgate.test.cjs"
     $outModelifecycleTest = Join-Path $outDir "modelifecycle.test.cjs"
+    $outClassifyTest = Join-Path $outDir "classify.test.cjs"
+    $outTimeout = Join-Path $outDir "timeout.cjs"
+    $outTimeoutTest = Join-Path $outDir "timeout.test.cjs"
     & npx --yes esbuild "..\engine.ts" --bundle --platform=node --format=cjs --outfile="$outEngine"
     & npx --yes esbuild "..\shellgate.ts" --bundle --platform=node --format=cjs --outfile="$outShellgate"
     & npx --yes esbuild "..\modelifecycle.ts" --bundle --platform=node --format=cjs --outfile="$outModelifecycle"
     & npx --yes esbuild "..\classify.ts" --bundle --platform=node --format=cjs --outfile="$outClassify"
+    & npx --yes esbuild "..\timeout.ts" --bundle --platform=node --format=cjs --outfile="$outTimeout"
     & npx --yes esbuild ".\engine.test.ts" --bundle --platform=node --format=cjs --outfile="$outEngineTest"
     & npx --yes esbuild ".\shellgate.test.ts" --bundle --platform=node --format=cjs --outfile="$outShellgateTest"
     & npx --yes esbuild ".\modelifecycle.test.ts" --bundle --platform=node --format=cjs --outfile="$outModelifecycleTest"
     & npx --yes esbuild ".\classify.test.ts" --bundle --platform=node --format=cjs --outfile="$outClassifyTest"
+    & npx --yes esbuild ".\timeout.test.ts" --bundle --platform=node --format=cjs --outfile="$outTimeoutTest"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: esbuild compilation failed"
         exit 1
@@ -64,6 +71,8 @@ else {
     $results["modelifecycle.test.ts"] = ($LASTEXITCODE -eq 0)
     & node --test "$outClassifyTest"
     $results["classify.test.ts"] = ($LASTEXITCODE -eq 0)
+    & node --test "$outTimeoutTest"
+    $results["timeout.test.ts"] = ($LASTEXITCODE -eq 0)
 }
 
 Write-Host ""

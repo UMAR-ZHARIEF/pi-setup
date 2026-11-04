@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyMcpCall, extractSubtool, normalizeSubtool } from "../classify.ts";
+import { classifyMcpCall, extractSubtool, normalizeSubtool, UNCLASSIFIED_REASON } from "../classify.ts";
 
 // Names sampled from the live adapter inventory (C:\Users\Guess\.pi\agent\mcp-cache.json).
 
@@ -232,24 +232,46 @@ test("photoshop getters allow and document mutations deny", () => {
   }
 });
 
-test("unknown server asks even for a read-sounding tool", () => {
-  assert.equal(classifyMcpCall("vision", "vision_describe_image").action, "ask");
-  assert.equal(classifyMcpCall("notarealserver", "get_everything").action, "ask");
+test("the mcp gateway server hard-denies for any subtool (zero popups)", () => {
+  for (const subtool of ["proxy_call", "vision_describe_image", "serena_read_memory", "mcp__serena_read_memory"]) {
+    const verdict = classifyMcpCall("mcp", subtool);
+    assert.equal(verdict.action, "deny", subtool);
+    assert.match(verdict.reason, /cannot be pre-classified/);
+  }
+  assert.equal(classifyMcpCall("mcp", undefined).action, "deny");
+  assert.equal(classifyMcpCall("mcp", "").action, "deny");
 });
 
-test("unknown sub-tool on a known server asks", () => {
-  assert.equal(classifyMcpCall("serena", "drink_memory").action, "ask");
-  assert.equal(classifyMcpCall("github", "delete_everything").action, "ask");
-  assert.equal(classifyMcpCall("illustrator", "resize_everything").action, "ask");
-  assert.equal(classifyMcpCall("photoshop", "analyze_everything").action, "ask");
+test("unknown server denies even for a read-sounding tool (zero popups)", () => {
+  const vision = classifyMcpCall("vision", "vision_describe_image");
+  assert.equal(vision.action, "deny");
+  assert.equal(vision.reason, UNCLASSIFIED_REASON);
+  const noServer = classifyMcpCall("notarealserver", "get_everything");
+  assert.equal(noServer.action, "deny");
+  assert.equal(noServer.reason, UNCLASSIFIED_REASON);
 });
 
-test("main-model review 2026-11-05 moves the flagged ask names to their ruled tiers", () => {
+test("unknown sub-tool on a known server denies with the unclassified reason", () => {
+  for (const [server, subtool] of [
+    ["serena", "drink_memory"],
+    ["github", "delete_everything"],
+    ["illustrator", "resize_everything"],
+    ["photoshop", "analyze_everything"],
+  ] as const) {
+    const verdict = classifyMcpCall(server, subtool);
+    assert.equal(verdict.action, "deny", subtool);
+    assert.equal(verdict.reason, UNCLASSIFIED_REASON, subtool);
+  }
+});
+
+test("main-model review 2026-11-05 moved the flagged names to their ruled tiers", () => {
   // github: the three read-named names join the allow tier (covered above).
   assert.equal(classifyMcpCall("github", "github_issue_read").action, "allow");
-  // serena: dashboard open is pure viewing; activate_project stays ask.
+  // serena: dashboard open is pure viewing; activate_project is unlisted and
+  // now denies under the zero-popup rule (no ask tier anymore).
   assert.equal(classifyMcpCall("serena", "open_dashboard").action, "allow");
-  assert.equal(classifyMcpCall("serena", "activate_project").action, "ask");
+  assert.equal(classifyMcpCall("serena", "activate_project").action, "deny");
+  assert.equal(classifyMcpCall("serena", "activate_project").reason, UNCLASSIFIED_REASON);
   // supabase: type generation allows; the cost confirmation gates creation, deny.
   assert.equal(classifyMcpCall("supabase", "generate_typescript_types").action, "allow");
   const cost = classifyMcpCall("supabase", "confirm_cost");
@@ -258,18 +280,44 @@ test("main-model review 2026-11-05 moves the flagged ask names to their ruled ti
   // illustrator/photoshop: sampled pure analysis names allow.
   assert.equal(classifyMcpCall("illustrator", "check_contrast").action, "allow");
   assert.equal(classifyMcpCall("photoshop", "analyze_layout").action, "allow");
-  // transient selection state stays ask; the final ruling (2026-11-05) moved
-  // open_document and the document lock pair to the allow tier.
-  assert.equal(classifyMcpCall("photoshop", "select_all").action, "ask");
-  assert.equal(classifyMcpCall("illustrator", "select_objects").action, "ask");
+  // transient selection state is unlisted and now denies; the final ruling
+  // (2026-11-05) moved open_document and the document lock pair to the allow tier.
+  assert.equal(classifyMcpCall("photoshop", "select_all").action, "deny");
+  assert.equal(classifyMcpCall("illustrator", "select_objects").action, "deny");
   assert.equal(classifyMcpCall("illustrator", "open_document").action, "allow");
   assert.equal(classifyMcpCall("illustrator", "acquire_document").action, "allow");
 });
 
-test("missing or empty sub-tool on a known server asks", () => {
-  assert.equal(classifyMcpCall("serena", undefined).action, "ask");
-  assert.equal(classifyMcpCall("serena", "").action, "ask");
-  assert.equal(classifyMcpCall("serena", "   ").action, "ask");
+test("one sample per previous allow and deny tier is unchanged", () => {
+  assert.equal(classifyMcpCall("serena", "find_symbol").action, "allow");
+  assert.equal(classifyMcpCall("serena", "edit_memory").reason, "serena mutation (memories or source code)");
+  assert.equal(classifyMcpCall("github", "get_file_contents").action, "allow");
+  assert.equal(classifyMcpCall("github", "push_files").reason, "github repository mutation");
+  assert.equal(classifyMcpCall("supabase", "list_tables").action, "allow");
+  assert.equal(classifyMcpCall("supabase", "execute_sql").reason, "supabase mutation (project, schema, or SQL)");
+  assert.equal(classifyMcpCall("illustrator", "get_layers").action, "allow");
+  assert.equal(classifyMcpCall("illustrator", "save_document").reason, "illustrator document or file mutation");
+  assert.equal(classifyMcpCall("photoshop", "get_document_info").action, "allow");
+  assert.equal(classifyMcpCall("photoshop", "save_psd").reason, "photoshop document or file mutation");
+  assert.equal(classifyMcpCall("playwright", "browser_click").action, "allow");
+});
+
+test("missing or empty sub-tool on a known server denies (zero popups)", () => {
+  for (const subtool of [undefined, "", "   "] as const) {
+    const verdict = classifyMcpCall("serena", subtool);
+    assert.equal(verdict.action, "deny");
+    assert.equal(verdict.reason, UNCLASSIFIED_REASON);
+  }
+});
+
+test("classifyMcpCall never returns ask (empty ask tier by design)", () => {
+  const servers = ["mcp", "serena", "github", "supabase", "illustrator", "photoshop", "playwright", "playwright5", "vision", "notarealserver"];
+  const subtools = [undefined, "", "find_symbol", "edit_memory", "totally_unknown", "mcp__serena_find_symbol"];
+  for (const server of servers) {
+    for (const subtool of subtools) {
+      assert.notEqual(classifyMcpCall(server, subtool).action, "ask", `${server}.${subtool}`);
+    }
+  }
 });
 
 test("extractSubtool reads input.tool, then input.name, then input.serverTool", () => {

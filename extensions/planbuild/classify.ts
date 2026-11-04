@@ -4,9 +4,14 @@
 // "mcp__<server>" with an input envelope {tool, args} (pi-mcp-adapter
 // namespace-tools.ts). The rule engine only ever sees the proxy name, so every
 // serena/github/... call looked identical to the gate. This module classifies the
-// sub-command into allow (silent), deny (hard block with a switch-to-build
-// message, never a popup), or ask (only genuinely unknown tools; per the approved
-// design in .pi/plans/planbuild-mutating-gate.md).
+// sub-command into allow (silent) or deny (hard block with a switch-to-build
+// message, never a popup).
+//
+// ZERO POPUPS (user decision 2026-11-05): the ask tier is EMPTY by design.
+// classifyMcpCall never returns "ask"; anything not classified as a known read
+// is refused with the switch-to-build reason (see UNCLASSIFIED_REASON), so plan
+// mode can never open a permission popup. The "ask" variant is kept in McpClass
+// only for typing compatibility with the engine (plan .pi/plans/planbuild-zero-popups.md).
 //
 // Matching rule: EXACT names only. Every list below is enumerated from the live
 // adapter inventory (C:\Users\Guess\.pi\agent\mcp-cache.json, runtime truth,
@@ -27,7 +32,7 @@ export type McpClass = "allow" | "deny" | "ask";
 
 // Serena: reads that only inspect memories, symbols, or server config, plus the
 // dashboard open (main-model review 2026-11-05: viewing). activate_project stays
-// unlisted (ask, transient or unclear).
+// unlisted, which now DENIES under the zero-popup rule.
 const SERENA_ALLOW = new Set([
 	"read_memory",
 	"list_memories",
@@ -169,8 +174,8 @@ const PLAYWRIGHT_SERVERS = new Set(["playwright", "playwright2", "playwright3", 
 // 2026-11-05, main-model review). The final ruling, 2026-11-05, moved three
 // flagged names into this tier: open_document (opens a document for viewing)
 // and the document-lock mutex pair acquire_document, release_document (session
-// handle bookkeeping, no document state changes). Ask-tier leftovers are
-// transient or unclear: select/deselect/convert/checkpoint.
+// handle bookkeeping, no document state changes). Unlisted leftovers
+// (select/deselect/convert/checkpoint) deny under the zero-popup rule.
 const ILLUSTRATOR_ALLOW = new Set([
 	"acquire_document",
 	"check_contrast",
@@ -271,10 +276,10 @@ const ILLUSTRATOR_DENY = new Set([
 
 // Photoshop: getter-named tools plus pure analysis or viewing tools (check/
 // find/analyze/validate/compare/qa/snapshot/diff/render_preview families,
-// open_image, load_design_system; ruling 2026-11-05, main-model review). Ask-tier
-// leftovers are transient selection state: select_all, select_rectangle,
-// deselect, invert_selection. The ruling's acquire/release words name no
-// photoshop inventory tools, so nothing is listed for them here.
+// open_image, load_design_system; ruling 2026-11-05, main-model review). Unlisted
+// leftovers (transient selection state: select_all, select_rectangle, deselect,
+// invert_selection) deny under the zero-popup rule. The ruling's acquire/release
+// words name no photoshop inventory tools, so nothing is listed for them here.
 const PHOTOSHOP_ALLOW = new Set([
 	"analyze_layout",
 	"brand_check",
@@ -426,6 +431,15 @@ const SERVER_DENY_REASON: Record<string, string> = {
 	photoshop: "photoshop document or file mutation",
 };
 
+// The MCP gateway server (the universal "mcp" wrapper): it can reach ANY server
+// and therefore cannot be pre-classified. Hard DENY per the zero-popup rule
+// (user decision 2026-11-05); use the direct server tools or switch to build mode.
+const MCP_GATEWAY_SERVER = "mcp";
+
+// Reason for every verdict that is not an explicit known read or known mutation:
+// refused instead of asked, so plan mode never opens a permission popup.
+export const UNCLASSIFIED_REASON = "not classified as a read in plan mode; switch to build mode with /mode build";
+
 const MCP_PROXY_PREFIX = "mcp__";
 
 export function normalizeSubtool(server: string, subtool: string): string {
@@ -447,14 +461,23 @@ export function extractSubtool(input: Record<string, unknown>): string | undefin
 	return undefined;
 }
 
+// Zero popups (user decision 2026-11-05): this function NEVER returns "ask".
+// The "ask" variant stays in the McpClass type for typing compatibility only;
+// the ask tier is empty by design. Everything that is not a known read is a deny.
 export function classifyMcpCall(server: string, subtool: string | undefined): { action: McpClass; reason: string } {
+	if (server === MCP_GATEWAY_SERVER) {
+		return {
+			action: "deny",
+			reason: "the mcp gateway wrapper can reach any server and cannot be pre-classified; use direct server tools or build mode",
+		};
+	}
 	const isPlaywright = PLAYWRIGHT_SERVERS.has(server);
 	const allow = SERVER_ALLOW[server];
 	if (!allow && !isPlaywright) {
-		return { action: "ask", reason: "unknown MCP server (not classified)" };
+		return { action: "deny", reason: UNCLASSIFIED_REASON };
 	}
 	if (subtool === undefined || normalizeSubtool(server, subtool).length === 0) {
-		return { action: "ask", reason: "missing sub-command on known MCP server" };
+		return { action: "deny", reason: UNCLASSIFIED_REASON };
 	}
 	if (isPlaywright) {
 		return { action: "allow", reason: "playwright server fully allowed in plan mode (viewing and interactions)" };
@@ -466,5 +489,5 @@ export function classifyMcpCall(server: string, subtool: string | undefined): { 
 	if (SERVER_DENY[server].has(name)) {
 		return { action: "deny", reason: SERVER_DENY_REASON[server] };
 	}
-	return { action: "ask", reason: "unknown sub-tool on known MCP server (not classified)" };
+	return { action: "deny", reason: UNCLASSIFIED_REASON };
 }

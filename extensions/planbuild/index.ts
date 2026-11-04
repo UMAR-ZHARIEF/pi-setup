@@ -12,6 +12,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { evaluate, mergeRuleSets, type Rule } from "./engine.ts";
 import { classifyMcpCall, extractSubtool } from "./classify.ts";
+import { questionTimeoutSeconds, withDialogTimeout } from "./timeout.ts";
 import { inspectBashCommand, inspectPowershellCommand, loadExtraSafeCommands } from "./shellgate.ts";
 import { deriveModeForTurn, deriveTurnMode, MODE_ENTRY_TYPE, type Mode } from "./modelifecycle.ts";
 
@@ -19,6 +20,10 @@ interface PlanbuildConfig {
 	defaultMode?: Mode;
 	extraSafeShellCommands?: string[];
 	customRules?: Rule[];
+	// Dialog timeout in whole seconds for plan_question (select and input) and
+	// the plan_exit approval confirm. Default 300; invalid values fall back to
+	// the default (see timeout.ts questionTimeoutSeconds).
+	questionTimeoutSeconds?: number;
 }
 
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "planbuild.json");
@@ -228,13 +233,29 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 					details: {},
 				};
 			}
-			let answer: string | undefined;
+			// Both boxes auto-dismiss after the configured timeout (native pi dialog
+			// timeout with live countdown; see timeout.ts). A timeout is NOT an answer:
+			// it is reported back as such and never selects anything.
+			const timeoutSeconds = questionTimeoutSeconds(config);
+			let outcome: { value: string | undefined; timedOut: boolean };
 			if (params.options && params.options.length > 0) {
-				answer = await ctx.ui.select(params.question, params.options);
+				outcome = await withDialogTimeout(
+					(opts) => ctx.ui.select(params.question, params.options as string[], opts),
+					timeoutSeconds,
+				);
 			} else {
-				answer = await ctx.ui.input(params.question, "");
+				outcome = await withDialogTimeout(
+					(opts) => ctx.ui.input(params.question, "", opts),
+					timeoutSeconds,
+				);
 			}
-			const text = answer ?? "(dismissed)";
+			if (outcome.timedOut) {
+				return {
+					content: [{ type: "text", text: `User answer: (no answer: timed out after ${timeoutSeconds} seconds)` }],
+					details: { answer: "(timeout)" },
+				};
+			}
+			const text = outcome.value ?? "(dismissed)";
 			return { content: [{ type: "text", text: `User answer: ${text}` }], details: { answer: text } };
 		},
 	});
@@ -264,15 +285,27 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 					details: {},
 				};
 			}
-			const approved = await ctx.ui.confirm(
-				"Switch to build mode?",
-				"Plan complete. Switch to build mode and start implementing?",
+			// The approval confirm auto-dismisses after the same configured timeout
+			// (see plan_question above). A timeout is NEVER an approval: it lands in
+			// the same not-approved path as an explicit rejection, so the session
+			// stays in plan mode.
+			const timeoutSeconds = questionTimeoutSeconds(config);
+			const outcome = await withDialogTimeout(
+				(opts) => ctx.ui.confirm(
+					"Switch to build mode?",
+					"Plan complete. Switch to build mode and start implementing?",
+					opts,
+				),
+				timeoutSeconds,
 			);
-			if (!approved) {
+			if (outcome.timedOut || outcome.value !== true) {
+				const note = outcome.timedOut
+					? ` (no answer: timed out after ${timeoutSeconds} seconds, treated as NOT approved)`
+					: "";
 				return {
 					content: [{
 						type: "text",
-						text: "User rejected the switch to build mode. Stay in plan mode and keep refining the plan.",
+						text: `User rejected the switch to build mode${note}. Stay in plan mode and keep refining the plan.`,
 					}],
 					details: {},
 				};
@@ -370,21 +403,28 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 		// input envelope {tool, args} (pi-mcp-adapter namespace-tools.ts; input.tool may
 		// be the bare server tool name or a server-prefixed candidate spelling, both
 		// normalized in classify.ts). Classified before the catch-all: known reads pass
-		// silently, known mutations hard-deny with the switch message (never a popup),
-		// and only unknown servers or sub-tools fall through to the ask path below.
+		// silently and everything else hard-denies with the classifier reason surfaced
+		// verbatim (zero popups: the classifier never returns ask, user decision
+		// 2026-11-05), so mcp__ calls never reach the interactive ask path below.
 		if (event.toolName.startsWith("mcp__")) {
 			const server = event.toolName.slice("mcp__".length);
 			const subtool = extractSubtool(input);
 			const verdict = classifyMcpCall(server, subtool);
 			if (verdict.action === "allow") return;
 			if (verdict.action === "deny") {
+				// Surface the classifier reason verbatim; reasons that already carry the
+				// switch instruction (unclassified calls) are not doubled.
+				const switchNote = verdict.reason.includes("switch to build mode")
+					? ""
+					: " Switch to build mode with /mode build.";
 				return {
 					block: true,
-					reason: `Plan mode: ${event.toolName}.${subtool ?? "(unknown sub-tool)"} changes state rather than reading it. Switch to build mode with /mode build.`,
+					reason: `Plan mode: ${event.toolName}.${subtool ?? "(unknown sub-tool)"}: ${verdict.reason}.${switchNote}`,
 				};
 			}
-			// ask: fall through to the catch-all evaluation (custom rules may still
-			// allow or deny; otherwise the interactive popup asks, headless denies).
+			// The classifier never returns "ask" for mcp__ calls, so nothing falls
+			// through from here: the interactive ask path below serves only non-MCP
+			// custom tools (via the catch-all rules, e.g. customRules with action "ask").
 		}
 
 		const action = evaluate(event.toolName, subjectFor(input), rules());

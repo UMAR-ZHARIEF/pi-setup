@@ -28,6 +28,8 @@ if ($major -gt 22 -or ($major -eq 22 -and $minor -ge 6)) {
     $results["engine.test.ts"] = ($LASTEXITCODE -eq 0)
     & node @flags .\shellgate.test.ts
     $results["shellgate.test.ts"] = ($LASTEXITCODE -eq 0)
+    & node @flags .\modelifecycle.test.ts
+    $results["modelifecycle.test.ts"] = ($LASTEXITCODE -eq 0)
 }
 else {
     Write-Host "mode: npx esbuild compile, then node --test"
@@ -35,12 +37,16 @@ else {
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     $outEngine = Join-Path $outDir "engine.cjs"
     $outShellgate = Join-Path $outDir "shellgate.cjs"
+    $outModelifecycle = Join-Path $outDir "modelifecycle.cjs"
     $outEngineTest = Join-Path $outDir "engine.test.cjs"
     $outShellgateTest = Join-Path $outDir "shellgate.test.cjs"
+    $outModelifecycleTest = Join-Path $outDir "modelifecycle.test.cjs"
     & npx --yes esbuild "..\engine.ts" --bundle --platform=node --format=cjs --outfile="$outEngine"
     & npx --yes esbuild "..\shellgate.ts" --bundle --platform=node --format=cjs --outfile="$outShellgate"
+    & npx --yes esbuild "..\modelifecycle.ts" --bundle --platform=node --format=cjs --outfile="$outModelifecycle"
     & npx --yes esbuild ".\engine.test.ts" --bundle --platform=node --format=cjs --outfile="$outEngineTest"
     & npx --yes esbuild ".\shellgate.test.ts" --bundle --platform=node --format=cjs --outfile="$outShellgateTest"
+    & npx --yes esbuild ".\modelifecycle.test.ts" --bundle --platform=node --format=cjs --outfile="$outModelifecycleTest"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: esbuild compilation failed"
         exit 1
@@ -49,6 +55,8 @@ else {
     $results["engine.test.ts"] = ($LASTEXITCODE -eq 0)
     & node --test "$outShellgateTest"
     $results["shellgate.test.ts"] = ($LASTEXITCODE -eq 0)
+    & node --test "$outModelifecycleTest"
+    $results["modelifecycle.test.ts"] = ($LASTEXITCODE -eq 0)
 }
 
 Write-Host ""

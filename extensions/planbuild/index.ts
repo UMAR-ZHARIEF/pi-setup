@@ -1,5 +1,8 @@
 // planbuild: opencode-style plan/build modes for pi with a strict plan-mode shell gate.
-// Semantics ported from opencode v1.19.5 (MIT, github.com/anomalyco/opencode) and Pi's plan-mode example (MIT).
+// Mode lifecycle: each turn derives its mode from the nearest preceding mode stamp on
+// the live session branch (see ./modelifecycle.ts); switches apply to new messages only.
+// Shell gate and mode UX adapted from opencode (MIT, github.com/anomalyco/opencode)
+// and Pi's plan-mode example (MIT).
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -8,8 +11,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { evaluate, mergeRuleSets, type Rule } from "./engine.ts";
 import { inspectBashCommand, inspectPowershellCommand, loadExtraSafeCommands } from "./shellgate.ts";
-
-type Mode = "plan" | "build";
+import { deriveTurnMode, MODE_ENTRY_TYPE, type Mode } from "./modelifecycle.ts";
 
 interface PlanbuildConfig {
 	defaultMode?: Mode;
@@ -18,7 +20,6 @@ interface PlanbuildConfig {
 }
 
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "planbuild.json");
-const MODE_ENTRY_TYPE = "planbuild-mode";
 const PLAN_REMINDER_TYPE = "planbuild-plan-reminder";
 const BUILD_SWITCH_TYPE = "planbuild-build-switch";
 const SUBAGENT_TOOL_NAME = "subagent";
@@ -68,29 +69,55 @@ function loadConfig(): PlanbuildConfig {
 	}
 }
 
-function customTypeOf(message: unknown): string | undefined {
-	return (message as { customType?: string } | undefined)?.customType;
-}
-
 export default function planbuildExtension(pi: ExtensionAPI): void {
 	const config = loadConfig();
-	let mode: Mode = config.defaultMode === "plan" ? "plan" : "build";
+	// Mode of the currently running turn, frozen when the turn starts so a bare switch
+	// mid-turn never applies retroactively. null means idle or invalidated by the
+	// plan_exit approval; the next reader derives once and re-freezes.
+	let turnMode: Mode | null = null;
+
+	function configDefaultMode(): Mode {
+		return config.defaultMode === "plan" ? "plan" : "build";
+	}
+
+	function liveBranchEntries(ctx: ExtensionContext): Array<{
+		type: string;
+		customType?: string;
+		data?: { mode?: string } | Record<string, unknown>;
+	}> {
+		// getBranch() already returns chronological order (oldest first), verified against
+		// pi 0.86.1 source (dist/core/session-manager.js walks leaf-to-root then reverses).
+		// Only live-branch entries are consulted, so stamps on abandoned branches after an
+		// edit are never seen here.
+		return ctx.sessionManager.getBranch().slice() as Array<{
+			type: string;
+			customType?: string;
+			data?: { mode?: string } | Record<string, unknown>;
+		}>;
+	}
+
+	function nextTurnMode(ctx: ExtensionContext): Mode {
+		// Mode the NEXT message will run under: nearest preceding stamp on the live branch.
+		return deriveTurnMode(liveBranchEntries(ctx), configDefaultMode());
+	}
+
+	function currentMode(ctx: ExtensionContext): Mode {
+		// Gate mode for the running turn: frozen at turn start, derived once on demand.
+		if (turnMode === null) turnMode = nextTurnMode(ctx);
+		return turnMode;
+	}
 
 	function rules(): Rule[] {
 		const custom = Array.isArray(config.customRules) ? config.customRules : [];
 		return mergeRuleSets(BUILTIN_RULES, custom);
 	}
 
-	function updateStatus(ctx: ExtensionContext): void {
-		if (mode === "plan") {
+	function updateStatus(ctx: ExtensionContext, display: Mode): void {
+		if (display === "plan") {
 			ctx.ui.setStatus("planbuild", ctx.ui.theme.fg("warning", "plan mode"));
 		} else {
 			ctx.ui.setStatus("planbuild", ctx.ui.theme.fg("muted", "build mode"));
 		}
-	}
-
-	function persistMode(): void {
-		pi.appendEntry(MODE_ENTRY_TYPE, { mode });
 	}
 
 	function setMode(
@@ -98,11 +125,13 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 		ctx: ExtensionContext,
 		options?: { extra?: string; deliver?: "steer" | "nextTurn" },
 	): void {
-		if (mode !== next) {
-			mode = next;
-			persistMode();
+		// The stamp log is the source of truth: stamp when the target differs from the
+		// last stamp on the live branch (fallback derivation included).
+		if (nextTurnMode(ctx) !== next) {
+			pi.appendEntry(MODE_ENTRY_TYPE, { mode: next });
 		}
-		updateStatus(ctx);
+		// Status shows the derived NEXT-turn mode; the running turn keeps its frozen mode.
+		updateStatus(ctx, next);
 		if (next === "build") {
 			const content = options?.extra ? `${BUILD_SWITCH}\n\n${options.extra}` : BUILD_SWITCH;
 			pi.sendMessage(
@@ -116,7 +145,8 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 	}
 
 	function toggleMode(ctx: ExtensionContext): void {
-		setMode(mode === "plan" ? "build" : "plan", ctx);
+		// Bare switches apply to new messages only; flip relative to the next-turn mode.
+		setMode(nextTurnMode(ctx) === "plan" ? "build" : "plan", ctx);
 	}
 
 	pi.registerFlag("plan", {
@@ -138,7 +168,7 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 			if (arg === "plan") setMode("plan", ctx);
 			else if (arg === "build") setMode("build", ctx);
 			else if (arg === "toggle") toggleMode(ctx);
-			else ctx.ui.notify(`Current mode: ${mode}. Usage: /mode plan | /mode build | /mode toggle`, "info");
+			else ctx.ui.notify(`Current mode: ${nextTurnMode(ctx)}. Usage: /mode plan | /mode build | /mode toggle`, "info");
 		},
 	});
 
@@ -187,7 +217,7 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 		],
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-			if (mode !== "plan") {
+			if (currentMode(ctx) !== "plan") {
 				return {
 					content: [{ type: "text", text: "plan_exit is only available in plan mode." }],
 					details: {},
@@ -219,6 +249,10 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 				extra: "The plan has been approved. Execute the plan now.",
 				deliver: "steer",
 			});
+			// Only path allowed to invalidate the frozen turn: the steer-delivered "execute
+			// the plan" message is a new message inside this same run, so it must derive
+			// build and pass the gate.
+			turnMode = null;
 			return {
 				content: [{ type: "text", text: "User approved switching to build mode. Wait for further instructions." }],
 				details: {},
@@ -242,10 +276,11 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName === "plan_exit" && mode === "build") {
+		const gateMode = currentMode(ctx);
+		if (event.toolName === "plan_exit" && gateMode === "build") {
 			return { block: true, reason: "plan_exit is only available in plan mode." };
 		}
-		if (mode === "build") return;
+		if (gateMode === "build") return;
 		if (event.toolName === "plan_question" || event.toolName === "plan_exit") return;
 
 		const input = event.input as Record<string, unknown>;
@@ -307,56 +342,27 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 		if (!ok) return { block: true, reason: `${reason} The user declined.` };
 	});
 
-	pi.on("before_agent_start", async () => {
-		if (mode === "plan") {
+	pi.on("before_agent_start", async (_event, ctx) => {
+		// Freeze this turn's mode from the live branch: nearest preceding stamp wins.
+		turnMode = deriveTurnMode(liveBranchEntries(ctx), configDefaultMode());
+		if (turnMode === "plan") {
 			return { message: { customType: PLAN_REMINDER_TYPE, content: PLAN_REMINDER, display: false } };
 		}
-	});
-
-	pi.on("context", async (event) => {
-		const messages = event.messages;
-		let lastPlan = -1;
-		let lastSwitch = -1;
-		for (let i = 0; i < messages.length; i++) {
-			const customType = customTypeOf(messages[i]);
-			if (customType === PLAN_REMINDER_TYPE) lastPlan = i;
-			else if (customType === BUILD_SWITCH_TYPE) lastSwitch = i;
-		}
-		let changed = false;
-		const filtered = messages.filter((message, index) => {
-			const customType = customTypeOf(message);
-			if (customType === PLAN_REMINDER_TYPE) {
-				const keep = mode === "plan" && index === lastPlan;
-				if (!keep) changed = true;
-				return keep;
-			}
-			if (customType === BUILD_SWITCH_TYPE) {
-				const keep = index === lastSwitch;
-				if (!keep) changed = true;
-				return keep;
-			}
-			return true;
-		});
-		if (!changed) return;
-		return { messages: filtered };
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		loadExtraSafeCommands(CONFIG_PATH);
 		const flagPlan = pi.getFlag("plan") === true;
 		const flagBuild = pi.getFlag("build") === true;
-		if (flagPlan) {
-			mode = "plan";
-		} else if (flagBuild) {
-			mode = "build";
+		if (flagPlan || flagBuild) {
+			// Explicit flags append a stamp (like any switch), never derive from getEntries().
+			const flagged: Mode = flagPlan ? "plan" : "build";
+			if (nextTurnMode(ctx) !== flagged) {
+				pi.appendEntry(MODE_ENTRY_TYPE, { mode: flagged });
+			}
+			updateStatus(ctx, flagged);
 		} else {
-			const entries = ctx.sessionManager.getEntries();
-			const entry = entries
-				.filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === MODE_ENTRY_TYPE)
-				.pop() as { data?: { mode?: Mode } } | undefined;
-			const persisted = entry?.data?.mode;
-			if (persisted === "plan" || persisted === "build") mode = persisted;
+			updateStatus(ctx, nextTurnMode(ctx));
 		}
-		updateStatus(ctx);
 	});
 }

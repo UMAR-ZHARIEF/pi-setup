@@ -1,7 +1,8 @@
 // planbuild: opencode-style plan/build modes for pi with a strict plan-mode shell gate.
-// Mode lifecycle: each turn derives its mode from the nearest preceding mode stamp on
-// the live session branch (see ./modelifecycle.ts); switches apply to new messages only.
-// Shell gate and mode UX adapted from opencode (MIT, github.com/anomalyco/opencode)
+// Mode lifecycle: each turn's gate mode is derived from the stamps preceding that turn's
+// user message on the live session branch (see ./modelifecycle.ts); switches apply to new
+// messages only. Queued turns gate the same way even though pi skips the turn-start hook
+// for them. Shell gate and mode UX adapted from opencode (MIT, github.com/anomalyco/opencode)
 // and Pi's plan-mode example (MIT).
 
 import { existsSync, readFileSync } from "node:fs";
@@ -11,7 +12,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { evaluate, mergeRuleSets, type Rule } from "./engine.ts";
 import { inspectBashCommand, inspectPowershellCommand, loadExtraSafeCommands } from "./shellgate.ts";
-import { deriveTurnMode, MODE_ENTRY_TYPE, type Mode } from "./modelifecycle.ts";
+import { deriveModeForTurn, deriveTurnMode, MODE_ENTRY_TYPE, type Mode } from "./modelifecycle.ts";
 
 interface PlanbuildConfig {
 	defaultMode?: Mode;
@@ -71,29 +72,43 @@ function loadConfig(): PlanbuildConfig {
 
 export default function planbuildExtension(pi: ExtensionAPI): void {
 	const config = loadConfig();
-	// Mode of the currently running turn, frozen when the turn starts so a bare switch
-	// mid-turn never applies retroactively. null means idle or invalidated by the
-	// plan_exit approval; the next reader derives once and re-freezes.
+	// Gate mode memoization, keyed to the turn's anchor user message. pi 0.86.1 delivers
+	// queued turns (input typed or steered while another turn streams) without emitting
+	// before_agent_start, so freezing once per agent run leaves queued turns with a stale
+	// mode. Instead: a queued turn's user message IS on the live branch before its turn
+	// runs, and a flip pressed before that delivery stamps earlier on the branch, so the
+	// mode is re-derived whenever the anchor user message changes. A mid-turn flip stamps
+	// after the anchor and still cannot affect the running turn. null anchor means "no
+	// user message seen yet"; the next reader derives fresh.
+	let turnAnchorId: string | null = null;
 	let turnMode: Mode | null = null;
 
 	function configDefaultMode(): Mode {
 		return config.defaultMode === "plan" ? "plan" : "build";
 	}
 
-	function liveBranchEntries(ctx: ExtensionContext): Array<{
+	interface BranchEntry {
+		id?: string;
 		type: string;
 		customType?: string;
 		data?: { mode?: string } | Record<string, unknown>;
-	}> {
+		message?: { role?: string };
+	}
+
+	function liveBranchEntries(ctx: ExtensionContext): BranchEntry[] {
 		// getBranch() already returns chronological order (oldest first), verified against
 		// pi 0.86.1 source (dist/core/session-manager.js walks leaf-to-root then reverses).
 		// Only live-branch entries are consulted, so stamps on abandoned branches after an
 		// edit are never seen here.
-		return ctx.sessionManager.getBranch().slice() as Array<{
-			type: string;
-			customType?: string;
-			data?: { mode?: string } | Record<string, unknown>;
-		}>;
+		return ctx.sessionManager.getBranch().slice() as BranchEntry[];
+	}
+
+	function lastUserMessageId(entries: BranchEntry[]): string | null {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const entry = entries[i];
+			if (entry.type === "message" && entry.message?.role === "user") return entry.id ?? null;
+		}
+		return null;
 	}
 
 	function nextTurnMode(ctx: ExtensionContext): Mode {
@@ -102,9 +117,16 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 	}
 
 	function currentMode(ctx: ExtensionContext): Mode {
-		// Gate mode for the running turn: frozen at turn start, derived once on demand.
-		if (turnMode === null) turnMode = nextTurnMode(ctx);
-		return turnMode;
+		// Gate mode for the running turn: anchored at the last user message on the live
+		// branch and re-derived only when that anchor changes, so every direct AND queued
+		// turn gates on the stamps preceding its own user message.
+		const branch = liveBranchEntries(ctx);
+		const anchorId = lastUserMessageId(branch);
+		if (anchorId === null || anchorId !== turnAnchorId) {
+			turnAnchorId = anchorId;
+			turnMode = deriveModeForTurn(branch, configDefaultMode());
+		}
+		return turnMode as Mode;
 	}
 
 	function rules(): Rule[] {
@@ -123,21 +145,30 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 	function setMode(
 		next: Mode,
 		ctx: ExtensionContext,
-		options?: { extra?: string; deliver?: "steer" | "nextTurn" },
+		options?: { deliver?: "steer" },
 	): void {
 		// The stamp log is the source of truth: stamp when the target differs from the
 		// last stamp on the live branch (fallback derivation included).
 		if (nextTurnMode(ctx) !== next) {
 			pi.appendEntry(MODE_ENTRY_TYPE, { mode: next });
 		}
-		// Status shows the derived NEXT-turn mode; the running turn keeps its frozen mode.
+		// Status shows the derived NEXT-turn mode; the running turn keeps its anchored mode.
 		updateStatus(ctx, next);
 		if (next === "build") {
-			const content = options?.extra ? `${BUILD_SWITCH}\n\n${options.extra}` : BUILD_SWITCH;
-			pi.sendMessage(
-				{ customType: BUILD_SWITCH_TYPE, content, display: false },
-				{ deliverAs: options?.deliver ?? "nextTurn" },
-			);
+			const message = { customType: BUILD_SWITCH_TYPE, content: BUILD_SWITCH, display: false };
+			if (options?.deliver === "steer") {
+				// plan_exit only: the approval must reach the RUNNING turn, so the notice
+				// rides the steer queue and is injected into the live run (and persisted at
+				// delivery) before the model's next response.
+				pi.sendMessage(message, { deliverAs: "steer" });
+			} else {
+				// Command flips: never queue the notice nextTurn (pi drains nextTurn only
+				// inside prompt(), which queued turns never reach: it would burst at the
+				// next direct prompt and starve queued turns). triggerTurn:false writes it
+				// immediately when idle and flushes it at the next turn boundary when
+				// streaming, always before any queued continuation runs.
+				pi.sendMessage(message, { triggerTurn: false });
+			}
 			ctx.ui.notify("Build mode: full access enabled.", "info");
 		} else {
 			ctx.ui.notify("Plan mode: read-only. Writes are limited to .pi/plans/ files.", "warning");
@@ -245,13 +276,16 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 					details: {},
 				};
 			}
-			setMode("build", ctx, {
-				extra: "The plan has been approved. Execute the plan now.",
-				deliver: "steer",
-			});
-			// Only path allowed to invalidate the frozen turn: the steer-delivered "execute
-			// the plan" message is a new message inside this same run, so it must derive
-			// build and pass the gate.
+			setMode("build", ctx, { deliver: "steer" });
+			// Push the running turn with a user-role steer message: it lands on the branch as
+			// a message[user] entry (sendUserMessage routes through prompt(streamingBehavior
+			// "steer") -> agent.steer({ role: "user" })), i.e. a new anchor, so the execute
+			// phase that follows derives build from the stamp just appended. A steered custom
+			// message would persist as custom_message, which is not an anchor.
+			pi.sendUserMessage("The plan has been approved. Execute the plan now.", { deliverAs: "steer" });
+			// Invalidate the anchor memo so the next reader derives fresh from the branch
+			// (belt and braces: the steer message changes the anchor once it lands).
+			turnAnchorId = null;
 			turnMode = null;
 			return {
 				content: [{ type: "text", text: "User approved switching to build mode. Wait for further instructions." }],
@@ -343,9 +377,14 @@ export default function planbuildExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("before_agent_start", async (_event, ctx) => {
-		// Freeze this turn's mode from the live branch: nearest preceding stamp wins.
-		turnMode = deriveTurnMode(liveBranchEntries(ctx), configDefaultMode());
-		if (turnMode === "plan") {
+		// Display-only plan reminder. Derived via nextTurnMode() (nearest preceding stamp):
+		// pi appends the turn's user message to the branch only AFTER this hook fires, so
+		// anchor-based derivation here would read the previous turn's anchor and show a
+		// stale banner on the first turn and after between-turn flips. nearest-stamp now
+		// exactly equals the anchor-based result once the imminent message lands. The
+		// gate never depends on this banner: currentMode() re-derives per anchor at
+		// tool_call time, which also covers queued turns that never fire this hook.
+		if (nextTurnMode(ctx) === "plan") {
 			return { message: { customType: PLAN_REMINDER_TYPE, content: PLAN_REMINDER, display: false } };
 		}
 	});

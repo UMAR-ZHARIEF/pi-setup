@@ -4,12 +4,21 @@ A pi extension that adds opencode-style plan and build modes with a strict plan-
 
 ## Mode lifecycle (per-message semantics)
 
-Every turn derives its mode from the nearest preceding mode stamp on the live branch of the session tree: entries are walked backwards (newest first) until a `planbuild-mode` custom entry with a valid `plan` or `build` value is found; malformed stamp values are skipped, and with no stamp at all the configured `defaultMode` applies. Mode switches (`/mode`, `alt+m`, `plan_exit` approval, `--plan`/`--build` at startup) append a stamp when the target mode differs from the last stamp on the live branch; the stamp log is the source of truth.
+Every turn's gate mode is derived from the stamps preceding that turn's user message on the live branch of the session tree: entries are walked backwards from the last user message (newest first) until a `planbuild-mode` custom entry with a valid `plan` or `build` value is found; malformed stamp values are skipped, and with no stamp before that message the configured `defaultMode` applies. Mode switches (`/mode`, `alt+m`, `plan_exit` approval, `--plan`/`--build` at startup) append a stamp when the target mode differs from the last stamp on the live branch; the stamp log is the source of truth.
 
-- Switches apply to new messages only, never retroactively. A turn that is already running keeps the mode it was started with. The only exception is the `plan_exit` approval: it invalidates the frozen mode of the running turn so the delivered "execute the plan" instruction is gated as build within that same turn.
+- Switches apply to new messages only, never retroactively: a turn gates on the stamps that precede its own user message, so a flip stamped after that message cannot affect the turn that is already running. The `plan_exit` approval is the deliberate exception: it delivers the "execute the plan" instruction as a user message, which becomes the new derivation anchor on the branch, so the rest of that run is gated as build.
 - The status line shows the derived next-turn mode (the mode the next message will run under), warning-colored in plan mode and muted in build mode.
 - Plan reminders and build-switch messages stay in the transcript exactly as sent, forever. They are never deleted or rewritten when the mode changes.
 - Editing an old message truncates the live branch before later stamps, so the replayed turn derives its original mode from the stamps that still precede it. Stamps on abandoned branches (dead entries outside the live branch) are never consulted.
+
+### Queued messages (typed while a reply is streaming)
+
+pi 0.86.1 delivers a message typed (or steered) while another turn is streaming as a continuation of the same run, and its turn-start hook never fires for those turns. planbuild still gates them correctly: a queued user message is appended to the session branch before its turn runs, and the gate derives from the stamps preceding that message, so a flip pressed before the queued message was delivered governs it (for example, a queued write attempt after `/mode plan` is blocked).
+
+Two honest limitations remain, both pi-side:
+
+- The plan-mode banner may not precede a queued turn: pi injects it only at the turn-start hook, which queued turns bypass. The gate never depends on the banner.
+- Build-switch notices are written to the transcript at flip time (immediately when idle; at the next turn boundary while a turn is streaming, which is still before any queued continuation runs). They never pile up for a later prompt.
 
 ## Commands and shortcut
 

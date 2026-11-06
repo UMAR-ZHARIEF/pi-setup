@@ -1,6 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyMcpCall, extractSubtool, normalizeSubtool, UNCLASSIFIED_REASON } from "../classify.ts";
+import {
+  classifyMcpCall,
+  classifyPlanModeTool,
+  CONFIG_PATH_DISPLAY,
+  extractSubtool,
+  normalizeSubtool,
+  PLAN_MODE_DENY_REASON,
+  PLAN_MODE_READ_TOOLS,
+  PLAN_MODE_WEB_TOOLS,
+  UNCLASSIFIED_REASON,
+} from "../classify.ts";
 
 // Names sampled from the live adapter inventory (C:\Users\Guess\.pi\agent\mcp-cache.json).
 
@@ -339,4 +349,171 @@ test("normalizeSubtool strips mcp__ and server prefixes once, exact otherwise", 
   assert.equal(normalizeSubtool("playwright2", "playwright2_browser_click"), "browser_click");
   assert.equal(normalizeSubtool("serena", "memory_write"), "memory_write");
   assert.equal(normalizeSubtool("github", "serena_edit_memory"), "serena_edit_memory");
+});
+
+// ---------------------------------------------------------------------------
+// Config onboarding doors (plan part 6): planAllowServers and planAllowTools,
+// consulted before the built-in tiers but never unblocking a classified mutation.
+// ---------------------------------------------------------------------------
+
+test("planAllowServers admits an unknown server wholesale (onboarding door)", () => {
+  const verdict = classifyMcpCall("vision", "vision_describe_image", { planAllowServers: ["vision"] });
+  assert.equal(verdict.action, "allow");
+  assert.match(verdict.reason, /planAllowServers/);
+  assert.match(verdict.reason, /planbuild\.json/);
+  // Whole server: every tool name on it passes, prefixed spellings included.
+  assert.equal(classifyMcpCall("vision", "vision_list_things", { planAllowServers: ["vision"] }).action, "allow");
+  assert.equal(classifyMcpCall("vision", "mcp__vision_describe_image", { planAllowServers: ["vision"] }).action, "allow");
+});
+
+test("planAllowTools admits an individual tool on a known or unknown server", () => {
+  const known = classifyMcpCall("serena", "drink_memory", { planAllowTools: ["drink_memory"] });
+  assert.equal(known.action, "allow");
+  assert.match(known.reason, /planAllowTools/);
+  // Normalized prefixed spellings match the same entry.
+  assert.equal(classifyMcpCall("serena", "serena_drink_memory", { planAllowTools: ["drink_memory"] }).action, "allow");
+  assert.equal(classifyMcpCall("notarealserver", "get_everything", { planAllowTools: ["get_everything"] }).action, "allow");
+});
+
+test("config entries never flip a deny-tier name (classified mutations stay denied)", () => {
+  const bothDoors = { planAllowServers: ["serena", "github", "supabase"], planAllowTools: ["edit_memory", "push_files", "execute_sql"] };
+  assert.equal(classifyMcpCall("serena", "edit_memory", bothDoors).action, "deny");
+  assert.match(classifyMcpCall("serena", "edit_memory", bothDoors).reason, /serena mutation/);
+  assert.equal(classifyMcpCall("github", "push_files", bothDoors).action, "deny");
+  assert.match(classifyMcpCall("github", "push_files", bothDoors).reason, /github repository mutation/);
+  assert.equal(classifyMcpCall("supabase", "execute_sql", bothDoors).action, "deny");
+  // Prefixed spellings of a deny-tier name stay denied too.
+  assert.equal(classifyMcpCall("serena", "serena_edit_memory", bothDoors).action, "deny");
+});
+
+test("the mcp gateway is never admittable via config", () => {
+  const verdict = classifyMcpCall("mcp", "serena_read_memory", {
+    planAllowServers: ["mcp"],
+    planAllowTools: ["serena_read_memory", "read_memory"],
+  });
+  assert.equal(verdict.action, "deny");
+  assert.match(verdict.reason, /cannot be pre-classified/);
+});
+
+test("planAllowServers on a known server admits unclassified names but not deny-tier names", () => {
+  // illustrator select_objects is unclassified (no tier lists it): the server door admits it.
+  const admitted = classifyMcpCall("illustrator", "select_objects", { planAllowServers: ["illustrator"] });
+  assert.equal(admitted.action, "allow");
+  assert.match(admitted.reason, /planAllowServers/);
+  // A classified mutation on the same server stays denied.
+  const mutation = classifyMcpCall("illustrator", "save_document", { planAllowServers: ["illustrator"] });
+  assert.equal(mutation.action, "deny");
+  assert.match(mutation.reason, /illustrator document or file mutation/);
+});
+
+test("invalid or hostile config values are ignored safely", () => {
+  // Non-array values, non-string entries, empty and whitespace-only entries.
+  const bad = {
+    planAllowServers: "serena" as unknown as string[],
+    planAllowTools: [42, null, "", "   ", {}] as unknown as string[],
+  };
+  assert.equal(classifyMcpCall("serena", "find_symbol", bad).action, "allow"); // built-in tier, not config
+  assert.equal(classifyMcpCall("serena", "drink_memory", bad).reason, UNCLASSIFIED_REASON);
+  assert.equal(classifyMcpCall("vision", "vision_describe_image", bad).reason, UNCLASSIFIED_REASON);
+  assert.equal(classifyMcpCall("serena", "find_symbol", undefined).action, "allow");
+  assert.equal(classifyMcpCall("serena", "edit_memory", undefined).action, "deny");
+});
+
+test("config entries match exactly after trimming, never by prefix", () => {
+  const config = { planAllowTools: [" find_symbol "] };
+  assert.equal(classifyMcpCall("serena", "find_symbol", config).action, "allow");
+  assert.equal(classifyMcpCall("serena", "find_symbol_extra", config).reason, UNCLASSIFIED_REASON);
+  const servers = { planAllowServers: [" serena "] };
+  assert.equal(classifyMcpCall("serena", "drink_memory", servers).action, "allow");
+  assert.equal(classifyMcpCall("serena2", "drink_memory", servers).reason, UNCLASSIFIED_REASON);
+});
+
+// ---------------------------------------------------------------------------
+// Non-MPC plan-mode strict gate (plan part 2): known reads allow, everything
+// else denies with the switch message, ask is unreachable by construction.
+// ---------------------------------------------------------------------------
+
+test("the read-only builtins allow silently", () => {
+  for (const name of ["read", "grep", "find", "ls"]) {
+    const verdict = classifyPlanModeTool(name);
+    assert.equal(verdict.action, "allow", name);
+    assert.ok(PLAN_MODE_READ_TOOLS.has(name), name);
+  }
+});
+
+test("the four pi-web-access reading tools plus the web_enable loader allow silently", () => {
+  // Runtime names from pi-web-access 0.31.0 DEFAULT_TOOL_NAMES; web_enable is the
+  // lazy-activation loader without which the four reading tools never become callable.
+  for (const name of ["web_search", "fetch_content", "get_search_content", "source_check", "web_enable"]) {
+    const verdict = classifyPlanModeTool(name);
+    assert.equal(verdict.action, "allow", name);
+    assert.ok(PLAN_MODE_WEB_TOOLS.has(name), name);
+  }
+});
+
+test("planbuild own tools allow by name", () => {
+  for (const name of ["plan_question", "plan_exit"]) {
+    assert.equal(classifyPlanModeTool(name).action, "allow", name);
+  }
+});
+
+test("bg, fusion, subagent-management, gateway and unknown tools deny with the switch message", () => {
+  const denied = [
+    // pi-background-tasks 2.6.2 (runtime names)
+    "bg_run", "bg_run_pi_attested", "bg_status", "bg_logs", "bg_kill", "bg_delegate", "bg_result",
+    "fusion_reason", "fusion_investigate", "fusion_research", "fusion_validate", "delegate_read_artifact",
+    // pi-subagents 0.71.0 (runtime names)
+    "subagents_enable", "bg_wait", "subagent_supervisor", "contact_supervisor",
+    // pi-mcp-adapter 2.33.0 (non-proxy surfaces)
+    "mcpScript", "mcp",
+    // todo tools: rpiv-todo registers "todo"; "todowrite" does not exist in pi 0.86.1,
+    // both land in the same catch-all
+    "todo", "todowrite",
+    // anything unknown, read-sounding or not
+    "webfetch", "future_read_thing", "archive_lookup",
+  ];
+  for (const name of denied) {
+    const verdict = classifyPlanModeTool(name);
+    assert.equal(verdict.action, "deny", name);
+    assert.equal(verdict.reason, PLAN_MODE_DENY_REASON, name);
+  }
+});
+
+test("the strict deny reason is exactly the approved switch message", () => {
+  assert.equal(PLAN_MODE_DENY_REASON, "not a read tool in plan mode; switch to build mode with /mode build");
+});
+
+test("structured tools are gated input-dependently upstream and never name-allowed", () => {
+  // edit/write/bash/powershell/subagent never reach classifyPlanModeTool (index.ts
+  // handles them first with path, command, and agent-name checks). The name
+  // classifier must not silently allow them either.
+  for (const name of ["edit", "write", "bash", "powershell", "subagent"]) {
+    assert.equal(classifyPlanModeTool(name).action, "deny", name);
+    assert.ok(!PLAN_MODE_READ_TOOLS.has(name), name);
+    assert.ok(!PLAN_MODE_WEB_TOOLS.has(name), name);
+  }
+});
+
+test("classifyPlanModeTool never returns ask: the plan-mode popup path is unreachable", () => {
+  const names = [
+    "read", "grep", "find", "ls", "edit", "write", "bash", "powershell",
+    "web_search", "fetch_content", "get_search_content", "source_check", "web_enable",
+    "subagent", "subagents_enable", "bg_run", "bg_delegate", "bg_result", "bg_status", "bg_logs", "bg_kill", "bg_wait",
+    "bg_run_pi_attested", "subagent_supervisor", "contact_supervisor",
+    "fusion_reason", "fusion_investigate", "fusion_research", "fusion_validate", "delegate_read_artifact",
+    "mcpScript", "mcp", "todo", "todowrite", "plan_question", "plan_exit",
+    "something_unheard_of",
+  ];
+  for (const name of names) {
+    const action = classifyPlanModeTool(name).action;
+    assert.ok(action === "allow" || action === "deny", `${name}: ${action}`);
+  }
+});
+
+test("the unclassified MCP denial names the onboarding config path", () => {
+  assert.equal(CONFIG_PATH_DISPLAY, "~/.pi/agent/planbuild.json");
+  assert.match(UNCLASSIFIED_REASON, /planbuild\.json/);
+  assert.match(UNCLASSIFIED_REASON, /planAllowServers or planAllowTools/);
+  assert.match(UNCLASSIFIED_REASON, /switch to build mode with \/mode build/);
+  assert.equal(classifyMcpCall("notarealserver", "get_everything").reason, UNCLASSIFIED_REASON);
 });

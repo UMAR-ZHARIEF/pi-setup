@@ -1,12 +1,12 @@
 # planbuild
 
-A pi extension that adds opencode-style plan and build modes with a strict plan-mode shell gate. The mode for each message is derived from mode stamps persisted in the session tree, so it survives resume. Build mode is the default and enforces nothing.
+A pi extension that adds opencode-style plan and build modes with a strict plan-mode gate. The mode for each message is derived from mode stamps persisted in the session tree, so it survives resume. Build mode is the default and enforces nothing.
 
 ## Mode lifecycle (per-message semantics)
 
 Every turn's gate mode is derived from the stamps preceding that turn's user message on the live branch of the session tree: entries are walked backwards from the last user message (newest first) until a `planbuild-mode` custom entry with a valid `plan` or `build` value is found; malformed stamp values are skipped, and with no stamp before that message the configured `defaultMode` applies. Mode switches (`/mode`, `alt+m`, `plan_exit` approval, `--plan`/`--build` at startup) append a stamp when the target mode differs from the last stamp on the live branch; the stamp log is the source of truth.
 
-- Switches apply to new messages only, never retroactively: a turn gates on the stamps that precede its own user message, so a flip stamped after that message cannot affect the turn that is already running. The `plan_exit` approval is the deliberate exception: it delivers the "execute the plan" instruction as a user message, which becomes the new derivation anchor on the branch, so the rest of that run is gated as build.
+- Switches apply to new messages only, never retroactively: a turn gates on the stamps that precede its own user message, so a flip stamped after that message cannot affect the turn that is already running. The `plan_exit` approval is the deliberate exception: it delivers the "execute the plan" instruction as a user message, which becomes the new derivation anchor on the branch, so the rest of that run is gated as build. A post-approval override covers the milliseconds BEFORE that steered message lands: once the approval confirm is accepted, the gate treats the remainder of the approval turn as build regardless of the anchor (the model's immediate dispatch cannot be denied with "switch to build mode" right after the user approved switching), and the override clears at the next turn start.
 - The status line shows the derived next-turn mode (the mode the next message will run under), warning-colored in plan mode and muted in build mode.
 - Plan reminders and build-switch messages stay in the transcript exactly as sent, forever. They are never deleted or rewritten when the mode changes.
 - Editing an old message truncates the live branch before later stamps, so the replayed turn derives its original mode from the stamps that still precede it. Stamps on abandoned branches (dead entries outside the live branch) are never consulted.
@@ -35,19 +35,29 @@ Two honest limitations remain, both pi-side:
 - **Both shells deny**: any redirect (`>`, `>>`, `2>`, `<`), command substitution (`$(...)` or backticks), subshell parentheses, variables (`$` followed by a letter), script blocks (`{`, `}`, a lone `&`, or `Invoke-Expression`), and `git -C`. Quoting is not parsed, so anything unparsed, empty, or unknown is denied.
 - **Subagents**: the pi-subagents dispatch tool is named `subagent` and carries the agent name in its `agent` parameter. In plan mode only `scout`, `researcher`, `reviewer`, `oracle`, `delegate` are allowed; `worker`, unknown names, and a missing name are denied with a reason that points at build mode.
 - **Own tools**: `plan_question` is allowed in plan mode; `plan_exit` is allowed only in plan mode and is denied in build mode.
-- **Everything else** goes through the rule engine (`evaluate`: last matching rule wins). The built-in rule set opens with a catch-all `ask` rule followed by specific overrides: the read-only builtins `read`, `grep`, `find`, and `ls` are allowed; unknown tools fall through to the catch-all and therefore prompt in interactive sessions; with no UI (one-shot/print runs) `ask` fails closed and blocks the call. A specific unknown tool can be allowed permanently through `customRules` (see the config file below). The hard gates (plan paths, shell allowlists, subagent names) remain non-overridable. This interactive ask path is reachable ONLY for non-MCP custom tools: MCP tool-server calls are classified before it and never reach it (see the MCP tool tiers below; the classifier never returns ask).
+- **Web tools (silent reads)**: the four pi-web-access reading tools `web_search`, `fetch_content`, `get_search_content`, and `source_check` pass silently (names enumerated from the installed pi-web-access 0.31.0). The package's `web_enable` loader passes too: on pi 0.86.1 the four reading tools register INACTIVE and only become callable after `web_enable` runs, and the loader itself is a pure local activation toggle (it never searches or fetches).
+- **Everything else is denied outright (strict non-MPC gate)**: any non-MCP tool not listed above (background and fusion tools such as `bg_run`, `bg_delegate`, `bg_wait`, `bg_status`, `bg_logs`, `bg_kill`, `fusion_*`; `mcpScript`; `subagents_enable`; todo tools; unknown extension tools) is blocked with the reason `Plan mode: tool "<name>" is not a read tool in plan mode; switch to build mode with /mode build.` There is no ask tier: the interactive permission prompt is unreachable in plan mode by construction, so plan mode can never open a permission popup. The former `customRules` config key is removed together with this change: generic engine rules had no consumer left, and admitting future reads is the job of the two config doors below (planAllowServers/planAllowTools).
 
-`plan_exit` asks the user to confirm the switch; on approval the extension switches to build mode and injects the adapted build-switch prompt plus the instruction to execute the approved plan. The confirm box auto-dismisses after the configured timeout (see "Question and approval timeouts" below); a timeout is treated as NOT approved and the session stays in plan mode. Entering plan mode injects the adapted read-only reminder each turn, mentioning the `.pi/plans/` convention and the research-only dispatch rule. Injected reminders and build-switch messages persist in the transcript exactly as sent (see the mode lifecycle section above).
+`plan_exit` asks the user to confirm the switch; on approval the extension switches to build mode, injects the adapted build-switch prompt plus the instruction to execute the approved plan, and gates the REST of that turn as build via the post-approval override (see the mode lifecycle section above). A dismissal or timeout is NOT a verdict on the plan: the tool returns the not-a-rejection wording and the session stays in plan mode. Entering plan mode injects the adapted read-only reminder each turn, mentioning the `.pi/plans/` convention and the research-only dispatch rule. Injected reminders and build-switch messages persist in the transcript exactly as sent (see the mode lifecycle section above).
 
 ### MCP tool tiers
 
-MCP tool-server calls (the `mcp__<server>` namespace proxies) are classified by sub-command before the generic rules run. The principle (user decision 2026-11-05: ZERO permission popups in plan mode): a call is either a known read that passes silently or it is denied outright with a switch-to-build message. The ask tier is EMPTY by design: the classifier never returns ask, so an MCP call can never open a permission popup.
+MCP tool-server calls (the `mcp__<server>` namespace proxies) are classified by sub-command before the strict non-MPC catch-all runs. The principle (user decision 2026-11-05: ZERO permission popups in plan mode): a call is either a known read that passes silently or it is denied outright with a switch-to-build message. The ask tier is EMPTY by design: the classifier never returns ask, so an MCP call can never open a permission popup.
 
 - **Allowed silently**: reads and the whole browser. Every tool on every playwright server passes, viewing and interactions alike, plus read-tier sub-commands such as serena `find_symbol`, github `get_file_contents`, supabase `list_tables`, and photoshop `get_document_info`.
 - **Denied outright**: memory, code, repository, database, and document mutations, for example serena `write_memory` or `edit_memory`, github `push_files` or `create_pull_request`, supabase `execute_sql` or `create_project`, illustrator `save_document` or `export`, photoshop `save_psd` or `undo`.
-- **Denied outright, unclassified (zero popups)**: the `mcp` gateway itself (the universal wrapper can reach any server and cannot be pre-classified; use direct server tools or build mode), any unknown server, any unknown sub-command on a known server, and a missing sub-command. Reason string: `not classified as a read in plan mode; switch to build mode with /mode build`.
+- **Denied outright, unclassified (zero popups)**: the `mcp` gateway itself (the universal wrapper can reach any server and cannot be pre-classified; use direct server tools or build mode; no config entry can admit it), any unknown server, any unknown sub-command on a known server, and a missing sub-command. Reason string: `not classified as a read in plan mode; if this tool is read-only, admit it via ~/.pi/agent/planbuild.json (planAllowServers or planAllowTools) or switch to build mode with /mode build`.
 
-The built-in allow and deny verdicts for MCP calls are a hard gate that `customRules` cannot override. Tier lists enumerate exact names from the live adapter inventory (`mcp-cache.json`), so an unlisted name can never silently classify as a read; unlisted names now DENY. User decision 2026-11-05: all browser tools, interactions included, are allowed in plan mode, so research browsing is never interrupted.
+### Onboarding a future read (config doors)
+
+`~/.pi/agent/planbuild.json` takes two keys that admit reads the built-in tiers do not know, consulted BEFORE the deny tiers:
+
+- `planAllowServers`: whole servers admitted as reads (every tool on them). The intended recipe for a new read-only MCP server: add its name here, or use build mode once to classify its mutations into a deny tier first.
+- `planAllowTools`: individual tool names admitted as reads (matched after the same server-prefix normalization as the tiers).
+
+Both doors can only ADD allows, never unblock a classified mutation: a name on a server's built-in deny tier stays denied no matter what the config says, and the `mcp` gateway wrapper is never admittable. For new safe shell commands the equivalent door is `extraSafeShellCommands` (see the config file section below).
+
+The built-in allow and deny verdicts for MCP calls are a hard gate that config cannot override beyond the two doors above. Tier lists enumerate exact names from the live adapter inventory (`mcp-cache.json`), so an unlisted name can never silently classify as a read; unlisted names now DENY. User decision 2026-11-05: all browser tools, interactions included, are allowed in plan mode, so research browsing is never interrupted.
 
 Caveat: if a future pi-mcp-adapter config enables flattened direct tool registration (`directTools`) instead of namespace proxies, calls would no longer arrive as `mcp__<server>`, the classification would not see them, and the tier lists would need revisiting.
 
@@ -59,24 +69,26 @@ Caveat: if a future pi-mcp-adapter config enables flattened direct tool registra
 {
   "defaultMode": "build",
   "extraSafeShellCommands": ["node", "Get-Process"],
-  "customRules": [{ "tool": "webfetch", "pattern": "*", "action": "ask" }],
+  "planAllowServers": ["my-readonly-server"],
+  "planAllowTools": ["archive_lookup"],
   "questionTimeoutSeconds": 300
 }
 ```
 
 - `defaultMode`: `"build"` (default) or `"plan"` for new sessions.
 - `extraSafeShellCommands`: extra exact-name first tokens for bash and extra cmdlet names for powershell, added to both allowlists.
-- `customRules`: engine rules merged last, so they win over the built-in rule set in the generic rule evaluation. The hard plan-mode gates (plan paths, shell allowlists, subagent names) are not overridable by config.
+- `planAllowServers`: whole MCP tool servers admitted as plan-mode reads (see the onboarding section above). Entries never unblock a classified mutation and never admit the `mcp` gateway.
+- `planAllowTools`: individual MCP tool names admitted as plan-mode reads (see the onboarding section above). Entries never unblock a classified mutation.
 - `questionTimeoutSeconds`: dialog timeout in whole seconds for `plan_question` (both the select and the free-text input box) and the `plan_exit` approval confirm. Default 300; invalid values (missing, non-numeric, non-finite, zero, negative) fall back to the default; fractions are floored. Timeouts only dismiss the box; they never answer or approve anything.
 
 ### Question and approval timeouts
 
-The two human-answer boxes no longer block a turn forever when nobody is at the keyboard. pi 0.86.1 supports this natively (`ExtensionUIDialogOptions.timeout`, in milliseconds, with a live countdown display), and planbuild passes the configured timeout to every box:
+The two human-answer boxes no longer block a turn forever when nobody is at the keyboard. pi 0.86.1 supports this natively (`ExtensionUIDialogOptions.timeout`, in milliseconds, with a live countdown display), and planbuild passes the configured timeout to every box. A dismissed (Esc) or timed-out box is NOT a verdict on the substance (user decision 2026-11-06):
 
-- `plan_question`: when the select or input box times out, the tool returns `User answer: (no answer: timed out after N seconds)` with details answer `(timeout)`. It never picks an option or invents text on the user's behalf.
-- `plan_exit`: when the approval confirm times out, the timeout counts as NOT approved. The tool returns the rejection text with a `(no answer: timed out after N seconds, treated as NOT approved)` note and the session stays in plan mode.
+- `plan_question`: when the select or input box is dismissed or times out, the tool returns `No answer given (dialog dismissed or timed out; this is not a no; ask in chat or proceed with a stated default).` with details answer `(no answer)` and the `timedOut` flag. It never picks an option or invents text on the user's behalf.
+- `plan_exit`: when the approval confirm is dismissed or times out, the tool returns `The approval dialog was dismissed without a decision (not a rejection of the plan); tell the user the approval is still pending and ask whether to switch, wait, or keep planning.` and the session stays in plan mode. The old `User rejected the switch` wording is removed: a dismissal is not a rejection.
 
-Timeouts never approve anything: an absent user is treated like a refusal, in the boxes above and everywhere else.
+Timeouts and dismissals never approve anything: an absent user means "no decision", never a yes and never a no.
 
 ## Attribution
 

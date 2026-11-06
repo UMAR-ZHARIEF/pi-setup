@@ -1,5 +1,12 @@
 // planbuild rule engine: wildcard matching and last-match-wins rule evaluation.
 // Semantics ported from opencode v1.19.5 (MIT, github.com/anomalyco/opencode) and Pi's plan-mode example (MIT).
+//
+// NOTE (plan .pi/plans/planbuild-web-tools-strict.md part 2, 2026-11-06): the plan
+// mode gate no longer consults this engine. The non-MPC path is a strict allow
+// list plus catch-all deny (classify.ts classifyPlanModeTool), and the old
+// customRules config key that fed generic rules into plan mode is removed. The
+// module stays as internal machinery with its tests; nothing consumes it at
+// runtime.
 
 export type RuleAction = "allow" | "ask" | "deny";
 

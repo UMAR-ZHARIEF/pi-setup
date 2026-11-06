@@ -67,3 +67,38 @@ export function deriveModeForTurn(entries: LifecycleEntry[], fallback: Mode): Mo
 	}
 	return fallback;
 }
+
+// Post-approval override (plan part 3, plan_exit race fix): on approval, the
+// session may dispatch a few milliseconds BEFORE the steered "plan approved" user
+// message lands; the anchor is still the old plan-era stamp, so plain derivation
+// would deny with "switch to build mode" right after the user approved switching.
+// The override is the sanctioned exception: once plan_exit is approved, the gate
+// returns build for the REMAINDER OF THAT TURN regardless of the anchor, and the
+// state clears at the next turn start (index.ts clears it in before_agent_start).
+// The steered user message remains the derivation anchor for subsequent turns.
+export interface PostApprovalOverride {
+	activate(): void;
+	clear(): void;
+	isActive(): boolean;
+}
+
+export function createPostApprovalOverride(): PostApprovalOverride {
+	let active = false;
+	return {
+		activate(): void {
+			active = true;
+		},
+		clear(): void {
+			active = false;
+		},
+		isActive(): boolean {
+			return active;
+		},
+	};
+}
+
+// Gate-mode resolution with the override applied: build while the override is
+// active, otherwise the anchor-derived mode unchanged.
+export function resolveGateMode(override: PostApprovalOverride, derived: Mode): Mode {
+	return override.isActive() ? "build" : derived;
+}

@@ -11,11 +11,28 @@
 // timeout apart from a manual dismissal, because the native promise resolves
 // the same value for both.
 //
-// TIMEOUTS NEVER APPROVE ANYTHING: a timed-out question reports "(timeout)", a
-// timed-out plan_exit confirm is treated exactly like a rejection (the session
-// stays in plan mode). A timeout only dismisses the box; it never answers it.
+// TIMEOUTS AND DISMISSALS ARE NEVER VERDICTS (user decision 2026-11-06): a
+// timed-out or Esc-dismissed box means "no decision", never an answer and never
+// a rejection of the substance. The shared wording constants below carry that
+// semantics into both tool results: NO_ANSWER_TEXT for plan_question (select and
+// input) and PLAN_EXIT_NOT_APPROVED_TEXT for the plan_exit approval confirm
+// (the session stays in plan mode either way). The old "User rejected" phrasing
+// is removed: it guessed the user's intent from a keystroke.
 
 export const DEFAULT_QUESTION_TIMEOUT_SECONDS = 300;
+
+// plan_question result for a dismissed OR timed-out box (exact approved wording,
+// plan part 4): no answer was given, this is not a no, and the model must say in
+// chat what was asked and either proceed with a stated default or ask again in
+// plain chat.
+export const NO_ANSWER_TEXT =
+	"No answer given (dialog dismissed or timed out; this is not a no; ask in chat or proceed with a stated default).";
+
+// plan_exit result when the approval box is dismissed or times out (exact approved
+// wording, plan part 4). The old "User rejected the switch" text is removed: a
+// dismissal is not a verdict on the plan.
+export const PLAN_EXIT_NOT_APPROVED_TEXT =
+	"The approval dialog was dismissed without a decision (not a rejection of the plan); tell the user the approval is still pending and ask whether to switch, wait, or keep planning.";
 
 export interface TimeoutConfig {
 	questionTimeoutSeconds?: number;

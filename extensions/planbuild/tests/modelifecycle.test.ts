@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveModeForTurn, deriveTurnMode, MODE_ENTRY_TYPE } from "../modelifecycle.ts";
+import { createPostApprovalOverride, deriveModeForTurn, deriveTurnMode, MODE_ENTRY_TYPE, resolveGateMode } from "../modelifecycle.ts";
 
 function stamp(mode: string) {
   return { type: "custom", customType: MODE_ENTRY_TYPE, data: { mode } };
@@ -150,4 +150,60 @@ test("deriveModeForTurn: reproduced phase-D cascade from the queued-turn bug rep
   assert.equal(deriveModeForTurn(branch.slice(0, 6), "build"), "plan");
   // Q2 anchors at its queued user message (index 7): nearest preceding stamp is build.
   assert.equal(deriveModeForTurn(branch, "plan"), "build");
+});
+
+// ---------------------------------------------------------------------------
+// Post-approval override (plan part 3, plan_exit race fix): on approval the gate
+// returns build for the remainder of the turn even though the anchor still derives
+// plan; the override clears at the next turn start.
+// ---------------------------------------------------------------------------
+
+test("post-approval override is inactive in a fresh session", () => {
+  const override = createPostApprovalOverride();
+  assert.equal(override.isActive(), false);
+  // Inactive override leaves every derived mode unchanged.
+  assert.equal(resolveGateMode(override, "plan"), "plan");
+  assert.equal(resolveGateMode(override, "build"), "build");
+});
+
+test("post-approval override gates build regardless of the anchor-derived mode", () => {
+  const override = createPostApprovalOverride();
+  override.activate();
+  assert.equal(override.isActive(), true);
+  // The approval-turn anchor still derives plan, but the gate returns build.
+  assert.equal(resolveGateMode(override, "plan"), "build");
+  assert.equal(resolveGateMode(override, "build"), "build");
+});
+
+test("post-approval override clears at the next turn start and derivation resumes", () => {
+  const override = createPostApprovalOverride();
+  override.activate();
+  assert.equal(resolveGateMode(override, "plan"), "build");
+  // before_agent_start of the next turn clears the flag; the steered approval
+  // message re-anchored derivation to build, represented here by the derived value.
+  override.clear();
+  assert.equal(override.isActive(), false);
+  assert.equal(resolveGateMode(override, "build"), "build");
+});
+
+test("post-approval override activate and clear are idempotent", () => {
+  const override = createPostApprovalOverride();
+  override.activate();
+  override.activate();
+  assert.equal(override.isActive(), true);
+  override.clear();
+  override.clear();
+  assert.equal(override.isActive(), false);
+});
+
+test("post-approval override full plan_exit sequence reproduced", () => {
+  // plan-era anchor derives plan; approval activates; next turn clears while the
+  // stamp now derives build; nothing keeps the override alive past its turn.
+  const override = createPostApprovalOverride();
+  const anchorSaysPlan = "plan" as const;
+  assert.equal(resolveGateMode(override, anchorSaysPlan), "plan");
+  override.activate(); // plan_exit approved
+  assert.equal(resolveGateMode(override, anchorSaysPlan), "build");
+  override.clear(); // next before_agent_start
+  assert.equal(resolveGateMode(override, "build"), "build");
 });

@@ -1,4 +1,5 @@
-// planbuild MCP sub-command classifier: pure module, no Pi imports.
+// planbuild classifier: plan-mode verdicts for MCP sub-commands AND for non-MPC tools.
+// Pure module: no Pi imports.
 //
 // Why: in plan mode, MCP tool-server calls arrive as namespace proxies named
 // "mcp__<server>" with an input envelope {tool, args} (pi-mcp-adapter
@@ -27,6 +28,16 @@
 // inventory name ("edit_memory") or a prefixed form ("serena_edit_memory",
 // "mcp__serena_edit_memory"). normalizeSubtool strips an optional leading "mcp__"
 // and an optional leading "<server>_" once, then lists match exactly.
+//
+// Config onboarding doors (plan .pi/plans/planbuild-web-tools-strict.md part 6):
+// planbuild.json gains planAllowServers (whole servers admitted as reads) and
+// planAllowTools (individual tool names). classifyMcpCall consults them BEFORE the
+// built-in tiers, but a config entry can only ADD allows, never unblock a classified
+// mutation: a name on the server's built-in deny tier stays denied, and the mcp
+// gateway (it reaches any server) is never admittable. The unclassified-denial
+// reason names the config path so a future read can be admitted without a code
+// change. customRules (the old generic rule door) is removed; these two keys are
+// the only onboarding doors.
 
 export type McpClass = "allow" | "deny" | "ask";
 
@@ -437,8 +448,52 @@ const SERVER_DENY_REASON: Record<string, string> = {
 const MCP_GATEWAY_SERVER = "mcp";
 
 // Reason for every verdict that is not an explicit known read or known mutation:
-// refused instead of asked, so plan mode never opens a permission popup.
-export const UNCLASSIFIED_REASON = "not classified as a read in plan mode; switch to build mode with /mode build";
+// refused instead of asked, so plan mode never opens a permission popup. Names the
+// config onboarding path (plan part 6): a read-only tool the tiers do not know can
+// be admitted locally without a code change.
+export const CONFIG_PATH_DISPLAY = "~/.pi/agent/planbuild.json";
+
+export const UNCLASSIFIED_REASON =
+	`not classified as a read in plan mode; if this tool is read-only, admit it via ${CONFIG_PATH_DISPLAY} (planAllowServers or planAllowTools) or switch to build mode with /mode build`;
+
+// Config onboarding doors (plan part 6). Both keys are optional string arrays;
+// anything else (missing, non-array, non-string or empty entries) is ignored.
+export interface PlanAllowConfig {
+	planAllowServers?: string[];
+	planAllowTools?: string[];
+}
+
+function asNameList(value: unknown): Set<string> {
+	if (!Array.isArray(value)) return new Set<string>();
+	const names = new Set<string>();
+	for (const entry of value) {
+		if (typeof entry === "string" && entry.trim().length > 0) names.add(entry.trim());
+	}
+	return names;
+}
+
+// Consult the config doors BEFORE the built-in tiers. An entry only ever produces
+// an allow: if the name sits on the server's built-in deny tier the built-in deny
+// wins (the config can never unblock a classified mutation). Unknown servers have
+// no deny tier, so planAllowServers admits them wholesale; that is the onboarding
+// case the door exists for (add the server here, flip to build once to classify
+// its mutations, or keep it here if it is read-only).
+export function configAllows(
+	server: string,
+	name: string,
+	config: PlanAllowConfig | undefined,
+): { action: McpClass; reason: string } | null {
+	if (!config) return null;
+	const denyTier = SERVER_DENY[server];
+	if (denyTier && denyTier.has(name)) return null;
+	if (asNameList(config.planAllowServers).has(server)) {
+		return { action: "allow", reason: `${server} admitted as a read server by ${CONFIG_PATH_DISPLAY} planAllowServers` };
+	}
+	if (asNameList(config.planAllowTools).has(name)) {
+		return { action: "allow", reason: `${name} admitted as a read tool by ${CONFIG_PATH_DISPLAY} planAllowTools` };
+	}
+	return null;
+}
 
 const MCP_PROXY_PREFIX = "mcp__";
 
@@ -463,26 +518,35 @@ export function extractSubtool(input: Record<string, unknown>): string | undefin
 
 // Zero popups (user decision 2026-11-05): this function NEVER returns "ask".
 // The "ask" variant stays in the McpClass type for typing compatibility only;
-// the ask tier is empty by design. Everything that is not a known read is a deny.
-export function classifyMcpCall(server: string, subtool: string | undefined): { action: McpClass; reason: string } {
+// the ask tier is empty by design. Everything that is not a known read, a config
+// admission, or a known mutation is a deny. configAllows is consulted first, but
+// the gateway check stays ahead of it: no config entry may admit the universal
+// wrapper, and a deny-tier name may never be flipped.
+export function classifyMcpCall(
+	server: string,
+	subtool: string | undefined,
+	config?: PlanAllowConfig,
+): { action: McpClass; reason: string } {
 	if (server === MCP_GATEWAY_SERVER) {
 		return {
 			action: "deny",
 			reason: "the mcp gateway wrapper can reach any server and cannot be pre-classified; use direct server tools or build mode",
 		};
 	}
-	const isPlaywright = PLAYWRIGHT_SERVERS.has(server);
-	const allow = SERVER_ALLOW[server];
-	if (!allow && !isPlaywright) {
-		return { action: "deny", reason: UNCLASSIFIED_REASON };
-	}
 	if (subtool === undefined || normalizeSubtool(server, subtool).length === 0) {
 		return { action: "deny", reason: UNCLASSIFIED_REASON };
 	}
+	const name = normalizeSubtool(server, subtool);
+	const admitted = configAllows(server, name, config);
+	if (admitted) return admitted;
+	const isPlaywright = PLAYWRIGHT_SERVERS.has(server);
+	const allow = SERVER_ALLOW[server];
 	if (isPlaywright) {
 		return { action: "allow", reason: "playwright server fully allowed in plan mode (viewing and interactions)" };
 	}
-	const name = normalizeSubtool(server, subtool);
+	if (!allow) {
+		return { action: "deny", reason: UNCLASSIFIED_REASON };
+	}
 	if (allow.has(name)) {
 		return { action: "allow", reason: `${server} read-only tool` };
 	}
@@ -490,4 +554,41 @@ export function classifyMcpCall(server: string, subtool: string | undefined): { 
 		return { action: "deny", reason: SERVER_DENY_REASON[server] };
 	}
 	return { action: "deny", reason: UNCLASSIFIED_REASON };
+}
+
+// ---------------------------------------------------------------------------
+// Non-MPC plan-mode tool gate (strict, zero popups; plan part 2). The old
+// catch-all rule evaluation (ask tier plus customRules) is gone: in plan mode a
+// non-MPC tool call is either on the explicit read list below or it denies with
+// PLAN_MODE_DENY_REASON. The "ask" action does not exist in NonMpcClass, so the
+// plan-mode ask path is unreachable by construction (asserted in unit tests).
+//
+// Structured, input-dependent gates are handled in index.ts BEFORE this name
+// classifier runs and never reach it: edit/write (plan paths), bash/powershell
+// (read-only shell allowlists), subagent (research-agent names). plan_question
+// and plan_exit are also special-cased in index.ts; they are listed here so the
+// classifier is total and consistent for every tool name.
+// ---------------------------------------------------------------------------
+
+export const PLAN_MODE_READ_TOOLS = new Set(["read", "grep", "find", "ls"]);
+
+// pi-web-access 0.31.0 reading tools, names from the installed package's
+// DEFAULT_TOOL_NAMES (runtime truth). web_enable is the package's lazy-activation
+// loader on pi >= 0.86.1: the four reading tools register INACTIVE and never
+// become callable until it runs, so the loader is allowed as a pure local
+// activation toggle (it never searches or fetches anything itself).
+export const PLAN_MODE_WEB_TOOLS = new Set(["web_search", "fetch_content", "get_search_content", "source_check", "web_enable"]);
+
+export const PLAN_MODE_DENY_REASON = "not a read tool in plan mode; switch to build mode with /mode build";
+
+// No "ask": the popup path does not exist, mirroring the MCP classifier (zero popups).
+export type NonMpcClass = "allow" | "deny";
+
+export function classifyPlanModeTool(toolName: string): { action: NonMpcClass; reason: string } {
+	if (PLAN_MODE_READ_TOOLS.has(toolName)) return { action: "allow", reason: "read-only builtin" };
+	if (PLAN_MODE_WEB_TOOLS.has(toolName)) return { action: "allow", reason: "pi-web-access reading tool" };
+	if (toolName === "plan_question" || toolName === "plan_exit") {
+		return { action: "allow", reason: "planbuild own tool" };
+	}
+	return { action: "deny", reason: PLAN_MODE_DENY_REASON };
 }

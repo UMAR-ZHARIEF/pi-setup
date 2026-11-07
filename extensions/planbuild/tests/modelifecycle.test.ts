@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPostApprovalOverride, deriveModeForTurn, deriveTurnMode, MODE_ENTRY_TYPE, resolveGateMode } from "../modelifecycle.ts";
+import { createPostApprovalOverride, deriveModeForTurn, derivePreviousTurnMode, deriveTurnMode, MODE_ENTRY_TYPE, resolveGateMode } from "../modelifecycle.ts";
 
 function stamp(mode: string) {
   return { type: "custom", customType: MODE_ENTRY_TYPE, data: { mode } };
@@ -10,8 +10,8 @@ function msg() {
   return { type: "message" };
 }
 
-function user() {
-  return { type: "message", message: { role: "user" } };
+function user(label?: string) {
+  return { type: "message", id: label, message: { role: "user" } };
 }
 
 function assistant() {
@@ -206,4 +206,71 @@ test("post-approval override full plan_exit sequence reproduced", () => {
   assert.equal(resolveGateMode(override, anchorSaysPlan), "build");
   override.clear(); // next before_agent_start
   assert.equal(resolveGateMode(override, "build"), "build");
+});
+
+// ---------------------------------------------------------------------------
+// derivePreviousTurnMode: the one-shot build-switch signal. The speech rides a
+// build turn only when the immediately preceding turn ran in plan mode.
+// ---------------------------------------------------------------------------
+
+test("derivePreviousTurnMode: returns the stamps preceding the previous anchor", () => {
+  // Branch: build stamp, user A (ran build), plan stamp, user B (ran plan),
+  // build stamp, user C (current build turn). For anchor C the previous anchor
+  // is B, whose mode was plan: the switch speech is due on C's calls.
+  const branch = [stamp("build"), user(), assistant(), stamp("plan"), user(), assistant(), stamp("build"), user()];
+  assert.equal(derivePreviousTurnMode(branch, "build"), "plan");
+  // Truncated after user B's anchor (the plan turn itself is the last turn): the
+  // previous anchor is then A, and A ran build, so no switch.
+  assert.equal(derivePreviousTurnMode(branch.slice(0, 5), "build"), "build");
+});
+
+test("derivePreviousTurnMode: null when there is no previous anchor", () => {
+  assert.equal(derivePreviousTurnMode([], "plan"), null);
+  assert.equal(derivePreviousTurnMode([stamp("plan"), user()], "build"), null);
+  assert.equal(derivePreviousTurnMode([stamp("plan"), user(), assistant()], "build"), null);
+});
+
+test("derivePreviousTurnMode: falls back when no valid stamp precedes the previous anchor", () => {
+  // Previous turn predates any stamp: its mode was the configured default.
+  assert.equal(derivePreviousTurnMode([user(), stamp("plan"), user()], "build"), "build");
+  assert.equal(derivePreviousTurnMode([user(), user()], "plan"), "plan");
+});
+
+test("derivePreviousTurnMode: malformed stamps before the previous anchor are skipped", () => {
+  const malformed = [{ type: "custom", customType: MODE_ENTRY_TYPE }, stamp("auto")];
+  assert.equal(derivePreviousTurnMode([stamp("plan"), ...malformed, user(), stamp("build"), user()], "build"), "plan");
+  assert.equal(derivePreviousTurnMode([...malformed, user(), stamp("build"), user()], "build"), "build");
+});
+
+test("build-switch pair: due exactly once, on the first build turn after a plan turn", () => {
+  // plan turn B, then flip, then build turn C: due. Consecutive build turn D:
+  // not due (previous anchor C ran build).
+  const throughC = [stamp("plan"), user("B"), assistant(), stamp("build"), user("C")];
+  assert.equal(deriveModeForTurn(throughC, "build"), "build");
+  assert.equal(derivePreviousTurnMode(throughC, "build"), "plan");
+  const throughD = [...throughC, assistant(), user("D")];
+  assert.equal(deriveModeForTurn(throughD, "build"), "build");
+  assert.equal(derivePreviousTurnMode(throughD, "build"), "build");
+});
+
+test("build-switch pair: the plan_exit approval continuation is the first build turn", () => {
+  // plan-era turn A, approval stamps build, the steered approval message lands
+  // as the new anchor C: current build, previous anchor A ran plan, so the
+  // speech rides the approval continuation calls.
+  const approval = [stamp("plan"), user("A"), assistant(), stamp("build"), user("approved")];
+  assert.equal(deriveModeForTurn(approval, "plan"), "build");
+  assert.equal(derivePreviousTurnMode(approval, "plan"), "plan");
+  // The next real turn E sees the approval turn as build: no repeat.
+  const next = [...approval, assistant(), user("E")];
+  assert.equal(derivePreviousTurnMode(next, "plan"), "build");
+});
+
+test("build-switch pair: queued cascade flips fire the speech on the flipped queued turn", () => {
+  // Long build turn L, /mode plan during L, queued Q1 (plan), /mode build during
+  // Q1, queued Q2 (build): Q1 ran plan, so Q2 is a plan-to-build transition.
+  const branch = [
+    stamp("build"), user("L"), assistant(), stamp("plan"), user("Q1"), assistant(), stamp("build"), user("Q2"),
+  ];
+  assert.equal(deriveModeForTurn(branch, "plan"), "build");
+  assert.equal(derivePreviousTurnMode(branch, "plan"), "plan");
 });

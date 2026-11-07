@@ -68,6 +68,47 @@ export function deriveModeForTurn(entries: LifecycleEntry[], fallback: Mode): Mo
 	return fallback;
 }
 
+/**
+ * Derive the mode of the turn PRECEDING the last user message, or null when
+ * there is no previous turn.
+ *
+ * Used by the one-shot build-switch speech (opencode reminders parity): the
+ * speech rides the model calls of a build turn only when the immediately
+ * preceding turn ran in plan mode. The previous turn's mode is derived from the
+ * stamps preceding the PREVIOUS anchor (the user message before the last one),
+ * so a build turn that follows a plan turn sees "plan" exactly once, and
+ * consecutive build turns see "build" and inject nothing. Falls back to the
+ * fallback mode when no valid stamp precedes the previous anchor; returns null
+ * when there is no previous anchor at all (first turn of a session).
+ */
+export function derivePreviousTurnMode(entries: LifecycleEntry[], fallback: Mode): Mode | null {
+	let anchor = -1;
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type === "message" && entry.message?.role === "user") {
+			anchor = i;
+			break;
+		}
+	}
+	if (anchor === -1) return null;
+	let previous = -1;
+	for (let i = anchor - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type === "message" && entry.message?.role === "user") {
+			previous = i;
+			break;
+		}
+	}
+	if (previous === -1) return null;
+	for (let i = previous; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type !== "custom" || entry.customType !== MODE_ENTRY_TYPE) continue;
+		const mode = entry.data?.mode;
+		if (mode === "plan" || mode === "build") return mode;
+	}
+	return fallback;
+}
+
 // Post-approval override (plan part 3, plan_exit race fix): on approval, the
 // session may dispatch a few milliseconds BEFORE the steered "plan approved" user
 // message lands; the anchor is still the old plan-era stamp, so plain derivation

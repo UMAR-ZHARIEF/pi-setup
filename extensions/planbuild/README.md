@@ -1,6 +1,6 @@
 # planbuild
 
-A pi extension that adds opencode-style plan and build modes with a strict plan-mode gate. The mode for each message is derived from mode stamps persisted in the session tree, so it survives resume. Build mode is the default and enforces nothing.
+A pi extension that adds opencode-style plan and build modes with the full opencode plan posture. The mode for each message is derived from mode stamps persisted in the session tree, so it survives resume. Build mode is the default and enforces nothing.
 
 ## Mode lifecycle (per-message semantics)
 
@@ -8,17 +8,14 @@ Every turn's gate mode is derived from the stamps preceding that turn's user mes
 
 - Switches apply to new messages only, never retroactively: a turn gates on the stamps that precede its own user message, so a flip stamped after that message cannot affect the turn that is already running. The `plan_exit` approval is the deliberate exception: it delivers the "execute the plan" instruction as a user message, which becomes the new derivation anchor on the branch, so the rest of that run is gated as build. A post-approval override covers the milliseconds BEFORE that steered message lands: once the approval confirm is accepted, the gate treats the remainder of the approval turn as build regardless of the anchor (the model's immediate dispatch cannot be denied with "switch to build mode" right after the user approved switching), and the override clears at the next turn start.
 - The status line shows the derived next-turn mode (the mode the next message will run under), warning-colored in plan mode and muted in build mode.
-- Plan reminders and build-switch messages stay in the transcript exactly as sent, forever. They are never deleted or rewritten when the mode changes.
-- Editing an old message truncates the live branch before later stamps, so the replayed turn derives its original mode from the stamps that still precede it. Stamps on abandoned branches (dead entries outside the live branch) are never consulted.
+- Reminder speeches are never persisted. The plan speech rides every model call ephemerally and the build-switch speech rides the first build turn after a plan turn (see the reminder delivery section below); the transcript contains none of them.
+- Editing an old message truncates the live branch before later stamps, so the replayed turn derives its original mode from the stamps that still precede it. Stamps on abandoned branches (dead entries outside the live branch) are never consulted. This preservation of the original mode is a deliberate improvement over opencode, which stamps the replayed message with the currently selected mode (see the parity section).
 
 ### Queued messages (typed while a reply is streaming)
 
 pi 0.86.1 delivers a message typed (or steered) while another turn is streaming as a continuation of the same run, and its turn-start hook never fires for those turns. planbuild still gates them correctly: a queued user message is appended to the session branch before its turn runs, and the gate derives from the stamps preceding that message, so a flip pressed before the queued message was delivered governs it (for example, a queued write attempt after `/mode plan` is blocked).
 
-Two honest limitations remain, both pi-side:
-
-- The plan-mode banner may not precede a queued turn: pi injects it only at the turn-start hook, which queued turns bypass. The gate never depends on the banner.
-- Build-switch notices are written to the transcript at flip time (immediately when idle; at the next turn boundary while a turn is streaming, which is still before any queued continuation runs). They never pile up for a later prompt.
+The reminder speeches cover queued turns too: pi fires the `context` event before EVERY model call, including the steered and follow-up continuations of a run (the agent loop drains those queues inside the same run and routes each call through the event), so a queued plan turn sees the plan speech exactly like a direct one.
 
 ## Commands and shortcut
 
@@ -27,39 +24,28 @@ Two honest limitations remain, both pi-side:
 - `pi --plan` / `pi --build`: start in that mode by appending a mode stamp, so the flag overrides the derived mode (including on a resumed session) and applies to the messages that follow.
 - The footer status line always shows the active mode.
 
-## What plan mode blocks
+## What plan mode enforces (full opencode posture)
 
-- **File tools**: `edit` and `write` may only touch paths inside `.pi/plans/` (forward slashes; relative and absolute paths are normalized before checking, and a leading `@` is stripped). Everything else is denied with the reason.
-- **bash**: fail-closed read-only gate. The command is split on pipes, `&&`, `||`, `;` (and newlines) and EVERY segment must pass. A segment passes when its first token is one of `ls`, `cat`, `head`, `tail`, `wc`, `file`, `pwd`, `which`, `echo`, `rg`, `grep`, `find`, or `git` followed by exactly one read subcommand (`status`, `log`, `diff`, `show`, `branch`, `remote -v`, `rev-parse`, no extra arguments), or when the segment is exactly two tokens `<word> --version`. Matching is case-sensitive.
-- **powershell**: same gate, but segments must start with a canonical full cmdlet name: `Get-Content`, `Get-ChildItem`, `Get-Item`, `Select-String`, `Get-Location`, `Measure-Object`, `Sort-Object`, `Where-Object`, `Format-List`, `Format-Table`, `Compare-Object`, `Get-Date`, plus the same `git` and `--version` rules. Aliases are denied. Cmdlet matching is case-insensitive (PowerShell semantics); bash stays case-sensitive.
-- **Both shells deny**: any redirect (`>`, `>>`, `2>`, `<`), command substitution (`$(...)` or backticks), subshell parentheses, variables (`$` followed by a letter), script blocks (`{`, `}`, a lone `&`, or `Invoke-Expression`), and `git -C`. Quoting is not parsed, so anything unparsed, empty, or unknown is denied.
-- **Subagents**: the pi-subagents dispatch tool is named `subagent` and carries the agent name in its `agent` parameter. In plan mode only `scout`, `researcher`, `reviewer`, `oracle`, `delegate` are allowed; `worker`, unknown names, and a missing name are denied with a reason that points at build mode.
-- **Own tools**: `plan_question` is allowed in plan mode; `plan_exit` is allowed only in plan mode and is denied in build mode.
-- **Web tools (silent reads)**: the four pi-web-access reading tools `web_search`, `fetch_content`, `get_search_content`, and `source_check` pass silently (names enumerated from the installed pi-web-access 0.31.0). The package's `web_enable` loader passes too: on pi 0.86.1 the four reading tools register INACTIVE and only become callable after `web_enable` runs, and the loader itself is a pure local activation toggle (it never searches or fetches).
-- **Everything else is denied outright (strict non-MPC gate)**: any non-MCP tool not listed above (background and fusion tools such as `bg_run`, `bg_delegate`, `bg_wait`, `bg_status`, `bg_logs`, `bg_kill`, `fusion_*`; `mcpScript`; `subagents_enable`; todo tools; unknown extension tools) is blocked with the reason `Plan mode: tool "<name>" is not a read tool in plan mode; switch to build mode with /mode build.` There is no ask tier: the interactive permission prompt is unreachable in plan mode by construction, so plan mode can never open a permission popup. The former `customRules` config key is removed together with this change: generic engine rules had no consumer left, and admitting future reads is the job of the two config doors below (planAllowServers/planAllowTools).
+Plan mode enforces exactly opencode's plan agent rules and nothing more (user decision 2026-11-07). The ONLY two gates:
 
-`plan_exit` asks the user to confirm the switch; on approval the extension switches to build mode, injects the adapted build-switch prompt plus the instruction to execute the approved plan, and gates the REST of that turn as build via the post-approval override (see the mode lifecycle section above). A dismissal or timeout is NOT a verdict on the plan: the tool returns the not-a-rejection wording and the session stays in plan mode. Entering plan mode injects the adapted read-only reminder each turn, mentioning the `.pi/plans/` convention and the research-only dispatch rule. Injected reminders and build-switch messages persist in the transcript exactly as sent (see the mode lifecycle section above).
+- **File tools**: `edit` and `write` may only touch paths inside `.pi/plans/` (forward slashes; relative and absolute paths are normalized before checking, and a leading `@` is stripped; matching is case-insensitive). Everything else is denied with a reason that names the convention and points at `/mode build`.
+- **Subagents**: the pi-subagents dispatch tool is named `subagent` and carries the agent name in its `agent` parameter. In plan mode only the research agents `scout`, `researcher`, `reviewer`, `oracle`, `delegate` are allowed; `worker` (the implementation worker, opencode's `task.general` equivalent), unknown names, and a missing name are denied with a reason that points at build mode.
 
-### MCP tool tiers
+Everything else is ALLOWED silently in plan mode: `bash` and `powershell` unrestricted (no shell gate anymore; the strict plan speech is the fence, exactly like opencode where the plan agent's permission layer also allows bash and relies on the plan prompt), every `mcp__<server>` tool call including known mutators (serena memory edits, github pushes, supabase SQL), the `mcp` gateway, unknown extension tools, the web tools, background and fusion tools, `mcpScript`, todo tools. There is no ask tier anywhere: the gate returns only silent allows or hard blocks, so plan mode can never open a permission popup (and silent allows need no popup anyway). The always-on workflow-guards extension (recycle gatekeeper, memory-write block, .env ask) remains the machine's real guard layer and is untouched by planbuild.
 
-MCP tool-server calls (the `mcp__<server>` namespace proxies) are classified by sub-command before the strict non-MPC catch-all runs. The principle (user decision 2026-11-05: ZERO permission popups in plan mode): a call is either a known read that passes silently or it is denied outright with a switch-to-build message. The ask tier is EMPTY by design: the classifier never returns ask, so an MCP call can never open a permission popup.
+The former strict gates were removed with this posture change: the read-only bash/powershell allowlists (shellgate), the MCP read/deny tier classifier (classify), the unknown-tool deny, the non-MPC catch-all deny, and the generic rule engine (engine). The retired config doors (`extraSafeShellCommands`, `planAllowServers`, `planAllowTools`) are no longer read; stale entries in an existing planbuild.json are harmless.
 
-- **Allowed silently**: reads and the whole browser. Every tool on every playwright server passes, viewing and interactions alike, plus read-tier sub-commands such as serena `find_symbol`, github `get_file_contents`, supabase `list_tables`, and photoshop `get_document_info`.
-- **Denied outright**: memory, code, repository, database, and document mutations, for example serena `write_memory` or `edit_memory`, github `push_files` or `create_pull_request`, supabase `execute_sql` or `create_project`, illustrator `save_document` or `export`, photoshop `save_psd` or `undo`.
-- **Denied outright, unclassified (zero popups)**: the `mcp` gateway itself (the universal wrapper can reach any server and cannot be pre-classified; use direct server tools or build mode; no config entry can admit it), any unknown server, any unknown sub-command on a known server, and a missing sub-command. Reason string: `not classified as a read in plan mode; if this tool is read-only, admit it via ~/.pi/agent/planbuild.json (planAllowServers or planAllowTools) or switch to build mode with /mode build`.
+`plan_exit` asks the user to confirm the switch; on approval the extension stamps build mode, injects the "The plan has been approved. Execute the plan now." user message (the new derivation anchor), and gates the REST of that turn as build via the post-approval override (see the mode lifecycle section above). A dismissal or timeout is NOT a verdict on the plan: the tool returns the not-a-rejection wording and the session stays in plan mode.
 
-### Onboarding a future read (config doors)
+## Reminder delivery (ephemeral, per model call)
 
-`~/.pi/agent/planbuild.json` takes two keys that admit reads the built-in tiers do not know, consulted BEFORE the deny tiers:
+Port of opencode's `session/reminders.ts` delivery model (v1.19.5). The fence for plan mode is the speech, delivered fresh on every model call:
 
-- `planAllowServers`: whole servers admitted as reads (every tool on them). The intended recipe for a new read-only MCP server: add its name here, or use build mode once to classify its mutations into a deny tier first.
-- `planAllowTools`: individual tool names admitted as reads (matched after the same server-prefix normalization as the tiers).
-
-Both doors can only ADD allows, never unblock a classified mutation: a name on a server's built-in deny tier stays denied no matter what the config says, and the `mcp` gateway wrapper is never admittable. For new safe shell commands the equivalent door is `extraSafeShellCommands` (see the config file section below).
-
-The built-in allow and deny verdicts for MCP calls are a hard gate that config cannot override beyond the two doors above. Tier lists enumerate exact names from the live adapter inventory (`mcp-cache.json`), so an unlisted name can never silently classify as a read; unlisted names now DENY. User decision 2026-11-05: all browser tools, interactions included, are allowed in plan mode, so research browsing is never interrupted.
-
-Caveat: if a future pi-mcp-adapter config enables flattened direct tool registration (`directTools`) instead of namespace proxies, calls would no longer arrive as `mcp__<server>`, the classification would not see them, and the tier lists would need revisiting.
+- **Plan speech, every plan-mode call**: pi fires the `context` event "Fired before each LLM call" with a deep copy of the messages (pi extensions.md, context event: "Modify messages non-destructively... event.messages - deep copy, safe to modify"). planbuild appends the speech as an extra text part on the current turn's user message of that copy and returns the modified list. The copy exists only for THIS call, so nothing is persisted: no custom entries, no custom_message parts, nothing appended to the session file. Queued turns are covered because the event fires on their calls too (see the queued messages section above).
+- **Build-switch speech, one-shot**: when a turn runs in build mode and the immediately preceding turn ran in plan mode, the same ephemeral injection delivers opencode's build-switch wording on the model calls of that first build turn. "Previous turn ran plan" is derived statelessly from the stamps preceding the previous user-message anchor (modelifecycle.ts `derivePreviousTurnMode`), so consecutive build turns inject nothing, the `plan_exit` approval continuation is exactly the first build turn, and queued cascades fire the speech on the flipped queued turn.
+- **Wording**: the plan speech adapts opencode's `session/prompt/plan.txt` (read-only phase, strictly forbidden to modify files or run non-readonly commands, overrides ALL other instructions including direct user edit requests, zero exceptions) plus the `.pi/plans/` convention sentence and the `plan_question`/`plan_exit` guidance. The build-switch speech adapts opencode's `session/prompt/build-switch.txt`.
+- The old persisted injections are gone: the turn-start banner (which never preceded queued turns) and the persisted flip-time build notice were removed in favor of the ephemeral delivery.
+- Compaction and cache-warming requests do not route through the context event, so they never receive a speech; they summarize or warm the plain conversation.
 
 ## Config file
 
@@ -68,28 +54,58 @@ Caveat: if a future pi-mcp-adapter config enables flattened direct tool registra
 ```json
 {
   "defaultMode": "build",
-  "extraSafeShellCommands": ["node", "Get-Process"],
-  "planAllowServers": ["my-readonly-server"],
-  "planAllowTools": ["archive_lookup"],
   "questionTimeoutSeconds": 300
 }
 ```
 
 - `defaultMode`: `"build"` (default) or `"plan"` for new sessions.
-- `extraSafeShellCommands`: extra exact-name first tokens for bash and extra cmdlet names for powershell, added to both allowlists.
-- `planAllowServers`: whole MCP tool servers admitted as plan-mode reads (see the onboarding section above). Entries never unblock a classified mutation and never admit the `mcp` gateway.
-- `planAllowTools`: individual MCP tool names admitted as plan-mode reads (see the onboarding section above). Entries never unblock a classified mutation.
 - `questionTimeoutSeconds`: dialog timeout in whole seconds for `plan_question` (both the select and the free-text input box) and the `plan_exit` approval confirm. Default 300; invalid values (missing, non-numeric, non-finite, zero, negative) fall back to the default; fractions are floored. Timeouts only dismiss the box; they never answer or approve anything.
+- Retired keys (`extraSafeShellCommands`, `planAllowServers`, `planAllowTools`) are ignored harmlessly; the full posture left nothing for them to admit.
 
 ### Question and approval timeouts
 
 The two human-answer boxes no longer block a turn forever when nobody is at the keyboard. pi 0.86.1 supports this natively (`ExtensionUIDialogOptions.timeout`, in milliseconds, with a live countdown display), and planbuild passes the configured timeout to every box. A dismissed (Esc) or timed-out box is NOT a verdict on the substance (user decision 2026-11-06):
 
 - `plan_question`: when the select or input box is dismissed or times out, the tool returns `No answer given (dialog dismissed or timed out; this is not a no; ask in chat or proceed with a stated default).` with details answer `(no answer)` and the `timedOut` flag. It never picks an option or invents text on the user's behalf.
-- `plan_exit`: when the approval confirm is dismissed or times out, the tool returns `The approval dialog was dismissed without a decision (not a rejection of the plan); tell the user the approval is still pending and ask whether to switch, wait, or keep planning.` and the session stays in plan mode. The old `User rejected the switch` wording is removed: a dismissal is not a rejection.
+- `plan_exit`: when the approval confirm is dismissed or times out, the tool returns `The approval dialog was dismissed without a decision (not a rejection of the plan); tell the user the approval is still pending and ask whether to switch, wait, or keep planning.` and the session stays in plan mode.
 
 Timeouts and dismissals never approve anything: an absent user means "no decision", never a yes and never a no.
 
+## Parity with opencode v1.19.5
+
+Authoritative source: `scratch\opencode-protocol-definitive.md` (full source read of opencode v1.19.5). The sixteen protocol points, and where planbuild stands after the full-posture batch:
+
+| # | Point | opencode v1.19.5 | planbuild | Verdict |
+|---|-------|------------------|-----------|---------|
+| 1 | Modes are agents | plan and build are builtin primary agents; the mode IS the agent name | one session, two modes switched by persisted stamps | Match (mechanism differs: stamps instead of agent fields; semantics identical) |
+| 2 | Stamping | every user message carries the selected agent; assistant messages carry mode and agent | mode stamps are persisted custom entries on the branch; derivation reads stamps | Match |
+| 3 | Active mode resolution | the loop re-resolves the newest user message's agent on every iteration | per-anchor derivation re-resolves whenever the anchor user message changes (tool_call and context time) | Match |
+| 4 | Switching UX | Tab cycling, agent list, completed plan_exit flips the selector | `/mode`, `alt+m`, plan_exit approval stamps build | Match (no TUI selector in pi; the switches cover the same flows) |
+| 5 | Permission layer | defaults allow everything; the plan agent adds edit deny outside plan files and task.general deny | the same two denies (edit/write outside `.pi/plans/`, worker dispatch) and everything else silent | Posture flip (this batch): the former strict deny tiers were flipped to allow-all parity |
+| 6 | Call-time enforcement | every tool asks its permission with patterns at call time | the tool_call gate evaluates the two denies per call with path normalization | Match |
+| 7 | Tool visibility | request-time filter hides a tool only under a catch-all deny; inert in plan mode, nothing hidden | nothing is hidden; all tools stay registered and allowed in plan mode | Match |
+| 8 | The speech | strict plan.txt pushed onto the current user message per loop iteration, in memory, never persisted; build-switch the same on returning to build | the same ephemeral delivery via pi's context event, every call, queued turns included; build-switch one-shot | Speech gap fixed (this batch): the old persisted banner and flip notice were replaced by the ephemeral port |
+| 9 | plan_exit | a real tool, registered only under the experimental flag plus cli client; absent by default | always registered; UI confirm with not-a-verdict timeouts; headless no-UI fails closed | Match with documented divergence: planbuild registers it unconditionally (user-ordered; upstream gates it behind a flag) |
+| 10 | Revert (edit old message) | cleanup deletes later messages; the replay is stamped with the CURRENTLY selected mode | stamps surviving on the branch preserve the replayed turn's ORIGINAL mode | Kept deliberate improvement (user-ordered): original-mode preservation, a divergence in the user's favor |
+| 11 | Queued messages | no client queue; the loop's newest-user-message rule makes the newest queued message run next under its own stamp | pi queues exist; per-anchor gating gives each queued turn the stamps preceding its own message | Match |
+| 12 | Compaction | runs under a hidden all-denied agent; user mode survives via the original user message on replay | compaction and cache warming bypass the context event; the stamps on the branch survive compaction | Match |
+| 13 | Headless | non-interactive sessions deny question and plan_exit outright and auto-reject asks unless --auto | `ctx.hasUI` guards return no-UI results; plan_question and plan_exit fail closed without a UI; the gates still hold | Match |
+| 14 | V2 mirror | a half-built parallel v2 (mode field dropped, plan_exit unported, reminders marked missing); v1 is the live protocol | pi has a single session system; nothing to mirror | Not applicable |
+| 15 | Subagents | task gates on the subagent name; child sessions inherit deny rules; nesting depth one | worker dispatch denied, research agents allowed; the gate sits at dispatch in the parent | Match (worker is the task.general equivalent) |
+| 16 | Plan files | `.opencode/plans/<timestamp>-<slug>.md` allowlisted in the plan agent's edit rules | `.pi/plans/` path-segment allowlist; the model names the file | Match with documented path divergence |
+
+Tally: 14 of 16 points at parity (points 5 and 8 reached parity through this batch's posture flip and speech fix), point 10 kept as a deliberate improvement, point 14 not applicable.
+
+### Discovered facts that prevent future mistakes
+
+- opencode allows unknown tools by default: the defaults ruleset is allow-everything, and the evaluator's fallback ask is unreachable for tools. Plan-mode strictness upstream comes ONLY from the plan agent's edit deny and the speech.
+- `plan_enter` never existed in v1.19.5 anywhere in the source.
+- `plan_exit` is flag-gated upstream (experimental plan-mode flag plus cli client) and absent by default on a stock install.
+- The request-time tool-hiding machinery exists but is inert in plan mode: the plan agent's edit rules end in path-patterned allows, not a catch-all deny, so no tool is ever hidden.
+- Headless opencode (`opencode run`) auto-rejects every permission ask unless `--auto` is passed, and denies question, plan_enter, and plan_exit outright.
+- The v2 session system is half-built (messages drop the mode field, plan_exit is an upstream TODO, the v2 spec marks the plan reminders missing); the v1 path is the live protocol.
+- A user wildcard allow overrides even the plan agent's edit deny upstream (user config merges last for builtin agents); planbuild has no user override layer, so its two denies are unconditional.
+
 ## Attribution
 
-The shell gate and mode UX are adapted from opencode (MIT, github.com/anomalyco/opencode) and Pi's plan-mode example (MIT). The mode lifecycle is not a port of opencode's session-global mode: it follows pi session-tree stamps with per-message derivation on the live branch, as described above.
+Mode UX, plan posture, and the reminder speeches are adapted from opencode v1.19.5 (MIT, github.com/anomalyco/opencode). The mode lifecycle is not a port of opencode's session-global mode: it follows pi session-tree stamps with per-message derivation on the live branch, as described above. The former read-only shell gate (removed with the full posture) was originally adapted from opencode and Pi's plan-mode example (MIT).

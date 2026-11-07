@@ -85,6 +85,28 @@ export function decideRecovery(before: SessionSnapshot, after: SessionSnapshot):
 	return { notify: true, gainedEntries: gained, message: formatRecoveryNotice(gained) };
 }
 
+// The first-turn context swap gate. The agent runtime snapshots its message
+// list ONCE at load and rebuilds that list only at compaction and branch
+// navigation, so a recovered session manager still leaves the model reading a
+// stale snapshot. The extension's context handler (pi fires it before EVERY
+// LLM call, first turn included) replaces the model-facing list with the
+// corrected session manager's live buildSessionContext() output, and this pure
+// gate holds that decision: swap only when the swap is armed AND the fresh
+// list is usable. swap:false / messages:null is the undefined-equivalent:
+// "return nothing", the runtime list flows through untouched. Never a partial
+// merge: the fresh build already contains every persisted message, including
+// the prompt that triggered the call (the agent loop emits message_end for
+// every initial message, which persists it, before the turn's first LLM
+// request), so a wholesale replacement can never drop the current turn.
+export type ContextSwapDecision<M> = { swap: false; messages: null } | { swap: true; messages: Array<M> };
+
+export function decideContextSwap<M>(recovered: boolean, freshMessages: Array<M> | null | undefined): ContextSwapDecision<M> {
+	if (!recovered || !freshMessages || freshMessages.length === 0) {
+		return { swap: false, messages: null };
+	}
+	return { swap: true, messages: freshMessages };
+}
+
 // Never-throw wrapper for the session_start check: any error becomes a result
 // value so a failure can neither break session startup nor produce a notify.
 // The caller logs ok:false via console.error only.

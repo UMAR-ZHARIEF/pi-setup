@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+	decideContextSwap,
 	decideRecovery,
 	formatCheckReport,
 	formatRecoveryNotice,
@@ -57,6 +58,49 @@ test("null leaf before or after is handled without crashing", () => {
 	assert.equal(decideRecovery(snap(null, 2), snap("leaf-b", 3)).notify, true);
 	assert.equal(decideRecovery(snap("leaf-a", 2), snap(null, 2)).notify, false);
 	assert.equal(decideRecovery(snap(null, 1), snap(null, 1)).notify, false);
+});
+
+// ---------------------------------------------------------------------------
+// decideContextSwap: the first-turn context swap gate (armed by entry recovery).
+// ---------------------------------------------------------------------------
+
+test("swap armed: returns the corrected fresh list, handed through as-is", () => {
+	const fresh = [
+		{ role: "user", content: "recovered question" },
+		{ role: "assistant", content: "recovered reply" },
+		{ role: "toolResult", content: "recovered tool output" },
+	];
+	const decision = decideContextSwap(true, fresh);
+	assert.equal(decision.swap, true);
+	assert.equal(decision.messages, fresh);
+	assert.deepEqual(decision.messages, [
+		{ role: "user", content: "recovered question" },
+		{ role: "assistant", content: "recovered reply" },
+		{ role: "toolResult", content: "recovered tool output" },
+	]);
+});
+
+test("swap not recovered: undefined-equivalent (no swap, no messages)", () => {
+	const decision = decideContextSwap(false, [{ role: "user", content: "anything" }]);
+	assert.equal(decision.swap, false);
+	assert.equal(decision.messages, null);
+});
+
+test("swap disarms on an empty or missing fresh list even when recovered", () => {
+	assert.deepEqual(decideContextSwap(true, []), { swap: false, messages: null });
+	assert.deepEqual(decideContextSwap(true, null), { swap: false, messages: null });
+	assert.deepEqual(decideContextSwap(true, undefined), { swap: false, messages: null });
+});
+
+test("arming rule: a recovery gain arms the swap, silence and leaf-only moves do not", () => {
+	const recovered = decideRecovery(snap("leaf-a", 5), snap("leaf-b", 9));
+	assert.equal(recovered.gainedEntries > 0, true);
+	const unchanged = decideRecovery(snap("leaf-a", 9), snap("leaf-a", 9));
+	assert.equal(unchanged.gainedEntries > 0, false);
+	assert.equal(unchanged.notify, false);
+	const leafOnly = decideRecovery(snap("leaf-old", 9), snap("leaf-new", 9));
+	assert.equal(leafOnly.gainedEntries > 0, false);
+	assert.equal(leafOnly.notify, true);
 });
 
 // ---------------------------------------------------------------------------

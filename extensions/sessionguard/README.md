@@ -2,8 +2,9 @@
 
 Closes the session-file flush race at session entry. If pi ever resumes a
 session and some of the newest conversation is missing, sessionguard detects it
-at startup, re-reads the session file, and pulls the missing entries back in.
-You see one line when it recovers something, and silence when all is well.
+at startup, re-reads the session file, pulls the missing entries back into the
+session state, and keeps the model's context on the recovered state. You see
+one line when it recovers something, and silence when all is well.
 
 ## The defect, in plain English
 
@@ -69,30 +70,49 @@ sessionguard: recovered N newer entries the initial load missed; resumed from th
 N is the number of entries the first load missed. When nothing changed you see
 nothing.
 
+## The first-turn context fix
+
+Recovering the session manager used to leave one hole: the agent runtime
+snapshots its message list once at load and rebuilds that list only at
+compaction and branch navigation, so the FIRST turn after a racy restart still
+answered from the stale snapshot. That hole is now closed.
+
+sessionguard registers a handler on pi's `context` event, which fires before
+every LLM call, the first turn after recovery included. While the swap is
+armed (an entry check gained entries), the handler returns the corrected
+session manager's `buildSessionContext().messages`, and that return value
+replaces the list the model receives for the call. It is a wholesale
+replacement, never a partial merge, and it is safe because the fresh build
+already contains every persisted message: the agent loop persists each new
+prompt (and any queued messages) before the turn's first LLM request, so the
+replacement can never drop the message that triggered the call.
+
+The handler stays armed for the whole session on purpose: the runtime cache
+never rebuilds on its own, the corrected session manager always returns the
+live truth, and the per-call rebuild is cheap. When the runtime does rebuild
+(compaction, branch navigation, a later session entry), the replacement
+becomes a harmless no-op: the rebuilt runtime list and the fresh build contain
+the same messages, so swapping changes nothing. When the swap is disarmed (no
+recovery ever happened), the handler returns nothing and the model context is
+untouched.
+
 ## Limitations
 
 What the guard does and does not fix, stated plainly:
 
-- What works: the guard detects the flush race at session entry, notifies you
-  with the one-line recovery notice, and corrects the session manager state:
-  the resume leaf, the entry index, and the session topology. After the guard
-  runs, the session manager holds the complete entry set and the resume point
-  sits on the true last entry.
-- What still has a gap: the first turn after a racy restart may still answer
-  from the stale context. The agent runtime caches its message list at initial
-  load, and it does not rebuild that list when an extension reloads the session
-  manager mid-session_start. The guard's re-read happens inside that same
-  session_start event, so the recovery is visible to the session manager but
-  not yet to the model's context on that first turn. This is exactly what the
-  live replay showed: the recovery notice, leaf move, and topology were all
-  correct, while the first-turn answer still came from the pre-reload snapshot
-  (scratch\sessionguard-w2.md, p1-cure-q1 and p1-cure-q2).
-- What makes the gap disappear: a second restart, or any subsequent session
-  entry (new, resume, fork), sees the complete state, because the next load
-  builds its context from the corrected session manager state.
-- Follow-up: investigation of a context-rebuild path (making the first turn's
-  model context follow the recovered state instead of the cached snapshot) is
-  tracked as a follow-up.
+- What works end to end: the guard detects the flush race at session entry,
+  notifies you with the one-line recovery notice, corrects the session manager
+  state (resume leaf, entry index, session topology), and corrects the model's
+  context on the first turn and every turn after, as described above.
+- Disarm semantics, restated: the context swap is never manually disarmed. It
+  degrades to a no-op by content equality after any runtime rebuild, and it is
+  absent entirely (the handler returns nothing) in sessions where no entry
+  check ever gained entries.
+- The guard only runs at session entry (startup, reload, new, resume, fork).
+  Mid-session races in OTHER live processes are still only detected at the
+  next entry: if another pi process flushes new tail entries while this
+  process keeps running, this process notices them only when it next enters a
+  session. Detection stays entry-time-only by design.
 
 ## The manual command
 

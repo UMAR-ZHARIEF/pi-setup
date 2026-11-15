@@ -1,0 +1,5 @@
+[
+    {"keys": "ctrl+shift+c", "command": {"action": "sendInput", "input": "\u0003"}},
+    {"keys": "ctrl+shift+a", "command": {"action": "sendInput", "input": "\u0001"}},
+    {"keys": "ctrl+a", "command": "selectAll"}
+]

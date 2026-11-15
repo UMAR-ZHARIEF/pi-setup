@@ -1,0 +1,8 @@
+BackgroundColour=28,22,32
+ForegroundColour=204,204,204
+CursorColour=204,204,204
+Title=Git Bash
+CopyOnSelect=no
+MiddleClickAction=Void
+CtrlExchangeShift=yes
+KeyFunctions=A+Prior:scroll_lnup;A+Next:scroll_lndn;A+Home:scroll_top;A+End:scroll_end;AS+Prior:scroll_prev;AS+Next:scroll_next;c:copy;v:paste;a:select-all

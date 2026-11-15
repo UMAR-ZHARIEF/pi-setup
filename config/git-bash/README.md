@@ -26,7 +26,7 @@ transcript navigation inside the terminal.
 
 | File | Purpose |
 |------|---------|
-| `minttyrc` | Colors (#1c1620 bg), locked title, clipboard keys (Ctrl+C/V/A), scroll keys (Alt+PageUp/Down/Home/End, Alt+Shift+PageUp/Down), no copy-on-select, no middle-click paste |
+| `minttyrc` | Colors (#1c1620 bg), locked title, clipboard keys (Ctrl+C/V/A), scroll keys (Alt+PageUp/Down/Home/End, Alt+Shift+PageUp/Down), right Alt also acts as Alt for those keybinds (AltGrIsAlsoAlt=yes), no copy-on-select, no middle-click paste |
 | `bashrc-snippet.sh` | Pins window title to "Git Bash" + plants mintty prompt markers (OSC ?7711h) enabling Alt+Shift+PageUp/Down prompt hopping |
 | `pi-keybindings.json` | Six Alt keys mapped to pi's transcript scroll/jump/prompt-hop actions (works inside pi) |
 | `vscode-terminal-keys.json` | Ctrl+C copy, Ctrl+V paste (native), Ctrl+A select all, Ctrl+Shift+A line start, Ctrl+Shift+C interrupt |
@@ -57,6 +57,9 @@ transcript navigation inside the terminal.
   so use the app's own navigation (inside pi, the Alt keys work via pi's
   keybindings). VS Code's terminal keeps its own buffer which is why the same
   keys appear to work there in all contexts.
+- **Right Alt works like left Alt**: `AltGrIsAlsoAlt=yes` makes right Alt act
+  as an Alt modifier for all the Alt-key bindings (scroll keys, prompt hops),
+  while AltGr character composition still works as before.
 - **Discord icon (parked)**: the wrapper's Discord status shows a question
   mark icon because manually-added games cannot have custom icons in Discord.
   The fix (Rich Presence with an uploaded asset) is parked; see

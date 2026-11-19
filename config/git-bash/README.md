@@ -3,7 +3,7 @@
 This folder contains the complete standalone Git Bash configuration: matched
 colors, Windows-style clipboard keys, terminal scroll keybinds, prompt markers,
 a Discord activity launcher with a locked window title, and pi keybindings for
-transcript navigation inside the terminal.
+transcript navigation and word deletion inside the terminal.
 
 ## Quick setup (run on a fresh machine)
 
@@ -26,9 +26,9 @@ transcript navigation inside the terminal.
 
 | File | Purpose |
 |------|---------|
-| `minttyrc` | Colors (#1c1620 bg), locked title, clipboard keys (Ctrl+C/V/A), scroll keys (Alt+PageUp/Down/Home/End, Alt+Shift+PageUp/Down), right Alt also acts as Alt for those keybinds (AltGrIsAlsoAlt=yes), no copy-on-select, no middle-click paste |
+| `minttyrc` | Colors (#1c1620 bg), locked title, clipboard keys (Ctrl+C/V/A), scroll keys (Alt+PageUp/Down/Home/End, Alt+Shift+PageUp/Down), right Alt also acts as Alt for those keybinds (AltGrIsAlsoAlt=yes), Ctrl+Backspace remapped to ^W so word delete works everywhere (KeyFunctions), no copy-on-select, no middle-click paste |
 | `bashrc-snippet.sh` | Pins window title to "Git Bash" + plants mintty prompt markers (OSC ?7711h) enabling Alt+Shift+PageUp/Down prompt hopping |
-| `pi-keybindings.json` | Six Alt keys mapped to pi's transcript scroll/jump/prompt-hop actions (works inside pi) |
+| `pi-keybindings.json` | Seven keys mapped to pi's actions: six Alt keys for transcript scroll/jump/prompt-hop plus delete-word-backward, bound to Ctrl+Backspace, Ctrl+W and Alt+Backspace (works inside pi) |
 | `vscode-terminal-keys.json` | Ctrl+C copy, Ctrl+V paste (native), Ctrl+A select all, Ctrl+Shift+A line start, Ctrl+Shift+C interrupt |
 | `windows-terminal-keys.json` | Same pattern; note WT passes Ctrl+C through to shell when nothing selected (documented quirk) |
 | `wrapper.cs` | C# launcher: starts mintty with locked title + correct icon, stays alive for Discord detection. Metadata FileDescription = "Git Bash" |
@@ -46,6 +46,7 @@ transcript navigation inside the terminal.
 | Alt+PageUp/Down | scroll line | scroll transcript line | scroll (VS Code) | scroll (WT) |
 | Alt+Home/End | top/bottom | transcript top/bottom | top/bottom (VS Code) | top/bottom (WT) |
 | Alt+Shift+PageUp/Down | prompt hop | message hop | prompt hop (VS Code) | prompt hop (WT) |
+| Ctrl+Backspace | delete word backward (via the mintty ^W remap) | delete word backward (via the mintty ^W remap) | delete word (native) | delete word (native) |
 
 ## Known quirks
 
@@ -60,6 +61,17 @@ transcript navigation inside the terminal.
 - **Right Alt works like left Alt**: `AltGrIsAlsoAlt=yes` makes right Alt act
   as an Alt modifier for all the Alt-key bindings (scroll keys, prompt hops),
   while AltGr character composition still works as before.
+- **Ctrl+Backspace deletes a word via a ^W remap**: mintty sends Ctrl+Backspace
+  as plain byte 0x08, the same byte as Backspace, and outside Windows Terminal
+  pi reads that as a single-character backspace. The minttyrc therefore remaps
+  Ctrl+Backspace to ^W: pi binds ctrl+w to delete-word-backward, and bash
+  treats ^W as delete-to-previous-space, so the same tap deletes one word at
+  the prompt and inside pi (Windows Terminal and VS Code handle it natively
+  and are unaffected). WARNING: the `C+Back:"..."` entry in the minttyrc
+  KeyFunctions line contains ONE raw 0x17 control byte. Never "clean" that
+  entry or re-type it as an escape sequence such as `\x17` or the two
+  characters `^W`: mintty has no escape notation in config strings, so only
+  the literal raw byte works.
 - **Discord icon (parked)**: the wrapper's Discord status shows a question
   mark icon because manually-added games cannot have custom icons in Discord.
   The fix (Rich Presence with an uploaded asset) is parked; see

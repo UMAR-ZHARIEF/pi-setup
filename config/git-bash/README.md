@@ -3,8 +3,8 @@
 This folder contains the complete standalone Git Bash configuration: matched
 colors, Windows-style clipboard keys, mintty's native scrolling with a
 ScrollLock output freeze, prompt markers, a Discord activity launcher with a
-locked window title, and pi keybindings for transcript navigation and word
-deletion inside the terminal.
+locked window title, and pi keybindings for transcript navigation, cursor
+line-start and word deletion inside the terminal.
 
 ## Quick setup (run on a fresh machine)
 
@@ -29,7 +29,7 @@ deletion inside the terminal.
 |------|---------|
 | `minttyrc` | Colors (#1c1620 bg), locked title, clipboard keys (Ctrl+C/V/A), ScrollLock output freeze and Ctrl+Backspace remapped to ^W (KeyFunctions), no copy-on-select, no middle-click paste. Scrolling itself needs no config: it is mintty-native (Shift+PageUp/Down pages, Shift+Up/Down lines, Shift+Left/Right prompt hops) |
 | `bashrc-snippet.sh` | Pins window title to "Git Bash" + plants mintty prompt markers (OSC ?7711h) enabling Shift+Left/Right prompt hopping (mintty native) |
-| `pi-keybindings.json` | Seven keys mapped to pi's actions: six Alt keys for transcript scroll/jump/prompt-hop plus delete-word-backward, bound to Ctrl+Backspace, Ctrl+W and Alt+Backspace (works inside pi) |
+| `pi-keybindings.json` | Eight keys mapped to pi's actions: six Alt keys for transcript scroll/jump/prompt-hop plus delete-word-backward and cursor line-start, bound to Ctrl+Backspace, Ctrl+W, Alt+Backspace and Ctrl+A (works inside pi) |
 | `vscode-terminal-keys.json` | Ctrl+C copy, Ctrl+V paste (native), Ctrl+A select all, Ctrl+Shift+A line start, Ctrl+Shift+C interrupt |
 | `windows-terminal-keys.json` | Same pattern; note WT passes Ctrl+C through to shell when nothing selected (documented quirk) |
 | `wrapper.cs` | C# launcher: starts mintty with locked title + correct icon, stays alive for Discord detection. Metadata FileDescription = "Git Bash" |
@@ -41,8 +41,8 @@ deletion inside the terminal.
 |-----|------------|-----------|------------------|-----------------|
 | Ctrl+C | copy | copy (pi binding) | copy | copy (passes through if nothing selected) |
 | Ctrl+V | paste | paste (mintty) | paste (native) | paste (default) |
-| Ctrl+A | select all | shell line-start | select all | select all |
-| Ctrl+Shift+A | line start | shell line-start | line start | line start |
+| Ctrl+A | select all | line start (input box) | select all | select all |
+| Ctrl+Shift+A | line start | line start (input box) | line start | line start |
 | Ctrl+Shift+C | interrupt | shell interrupt | interrupt | interrupt |
 | Shift+PageUp/PageDown | scroll page up/down (mintty native) | not used (pi scrolls itself; see Alt rows) | not remapped here | not remapped here |
 | Shift+Up/Down | scroll line up/down (mintty native) | not used (pi scrolls itself; see Alt rows) | not remapped here | not remapped here |
@@ -58,6 +58,10 @@ deletion inside the terminal.
 - **Windows Terminal Ctrl+C pass-through**: WT's copy action passes unhandled
   Ctrl+C to the shell when nothing is selected; Ctrl+Shift+C is the explicit
   interrupt everywhere.
+- **Ctrl+A and Ctrl+Shift+A are line start inside pi**: plain Ctrl+A at the
+  bash prompt remains mintty select-all; inside pi both Ctrl+A and
+  Ctrl+Shift+A are line start because mintty delivers both as the same
+  control character.
 - **Full-screen apps own the screen**: scrolling is mintty-native at the bash
   prompt (Shift+PageUp/Down pages, Shift+Up/Down lines, Shift+Left/Right
   prompt hops); full-screen apps (pi, vim) own the screen, so use the app's

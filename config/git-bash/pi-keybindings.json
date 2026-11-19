@@ -5,5 +5,6 @@
   "tui.altScreen.bottom": ["alt+end"],
   "tui.altScreen.previousPrompt": ["alt+shift+pageup"],
   "tui.altScreen.nextPrompt": ["alt+shift+pagedown"],
-  "tui.editor.deleteWordBackward": ["ctrl+backspace", "ctrl+w", "alt+backspace"]
+  "tui.editor.deleteWordBackward": ["ctrl+backspace", "ctrl+w", "alt+backspace"],
+  "tui.editor.cursorLineStart": ["home", "ctrl+home", "ctrl+a"]
 }

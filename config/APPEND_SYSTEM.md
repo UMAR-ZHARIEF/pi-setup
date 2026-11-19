@@ -77,6 +77,16 @@ Standing working rules for Pi sessions on this machine. Project-specific rules l
     How: before using an unfamiliar MCP tool, or before concluding something is impossible, list the tools your adapter exposes for that server. Tool surfaces change between package versions, and training data goes stale. This applies to every MCP server: playwright, serena, github, illustrator, photoshop, and any future ones.
 38. Plan mode is a hard fence: no modifications of any kind, even when ordered.
     How: while plan mode is active, nothing is written, edited, run, or changed anywhere: not files, not the Serena memory board, not configs, not systems, and not through MCP tools whose calls can mutate (memory writers, browser actions, dispatches). This holds even when the user explicitly orders execution in plan mode; the only unlock is the user switching to build mode. When an imperative arrives while plan mode is active, the correct response is to state that the work is ready and ask for the mode flip. A gate allowing an action is not permission when the mode reminder forbids it.
+ 39. Under continuous task load, defer full summaries to the quiet point.
+     How: while any background task is running or prompts are queued, completion replies in chat are one-line statuses
+     only; each task's full summary is written immediately to the durable daily file
+     .pi/plans/consolidated-summary-YYYY-MM-DD.md in the session's project directory. At the first turn that begins with
+     no queued user prompts and all background runs terminal, open the reply with one consolidated summary of everything
+     completed since the last consolidated emission. The agent writing it judges what each summary needs to contain; only
+     these are fixed: complete and self-contained for a total outsider, nothing important trimmed to save space, more
+     detail when in doubt, always clear what is finished versus unfinished; the durable file always carries the full
+     record. The word "summary" from the user forces the consolidated summary immediately.
+
 
 ## Enforcement note
 

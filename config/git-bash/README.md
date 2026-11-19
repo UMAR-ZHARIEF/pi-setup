@@ -1,9 +1,10 @@
 # Git Bash standalone setup (colors, keybinds, Discord activity, pi integration)
 
 This folder contains the complete standalone Git Bash configuration: matched
-colors, Windows-style clipboard keys, terminal scroll keybinds, prompt markers,
-a Discord activity launcher with a locked window title, and pi keybindings for
-transcript navigation and word deletion inside the terminal.
+colors, Windows-style clipboard keys, mintty's native scrolling with a
+ScrollLock output freeze, prompt markers, a Discord activity launcher with a
+locked window title, and pi keybindings for transcript navigation and word
+deletion inside the terminal.
 
 ## Quick setup (run on a fresh machine)
 
@@ -26,8 +27,8 @@ transcript navigation and word deletion inside the terminal.
 
 | File | Purpose |
 |------|---------|
-| `minttyrc` | Colors (#1c1620 bg), locked title, clipboard keys (Ctrl+C/V/A), scroll keys (Alt+PageUp/Down/Home/End, Alt+Shift+PageUp/Down), right Alt also acts as Alt for those keybinds (AltGrIsAlsoAlt=yes), Ctrl+Backspace remapped to ^W so word delete works everywhere (KeyFunctions), no copy-on-select, no middle-click paste |
-| `bashrc-snippet.sh` | Pins window title to "Git Bash" + plants mintty prompt markers (OSC ?7711h) enabling Alt+Shift+PageUp/Down prompt hopping |
+| `minttyrc` | Colors (#1c1620 bg), locked title, clipboard keys (Ctrl+C/V/A), ScrollLock output freeze and Ctrl+Backspace remapped to ^W (KeyFunctions), no copy-on-select, no middle-click paste. Scrolling itself needs no config: it is mintty-native (Shift+PageUp/Down pages, Shift+Up/Down lines, Shift+Left/Right prompt hops) |
+| `bashrc-snippet.sh` | Pins window title to "Git Bash" + plants mintty prompt markers (OSC ?7711h) enabling Shift+Left/Right prompt hopping (mintty native) |
 | `pi-keybindings.json` | Seven keys mapped to pi's actions: six Alt keys for transcript scroll/jump/prompt-hop plus delete-word-backward, bound to Ctrl+Backspace, Ctrl+W and Alt+Backspace (works inside pi) |
 | `vscode-terminal-keys.json` | Ctrl+C copy, Ctrl+V paste (native), Ctrl+A select all, Ctrl+Shift+A line start, Ctrl+Shift+C interrupt |
 | `windows-terminal-keys.json` | Same pattern; note WT passes Ctrl+C through to shell when nothing selected (documented quirk) |
@@ -43,9 +44,13 @@ transcript navigation and word deletion inside the terminal.
 | Ctrl+A | select all | shell line-start | select all | select all |
 | Ctrl+Shift+A | line start | shell line-start | line start | line start |
 | Ctrl+Shift+C | interrupt | shell interrupt | interrupt | interrupt |
-| Alt+PageUp/Down | scroll line | scroll transcript line | scroll (VS Code) | scroll (WT) |
-| Alt+Home/End | top/bottom | transcript top/bottom | top/bottom (VS Code) | top/bottom (WT) |
-| Alt+Shift+PageUp/Down | prompt hop | message hop | prompt hop (VS Code) | prompt hop (WT) |
+| Shift+PageUp/PageDown | scroll page up/down (mintty native) | not used (pi scrolls itself; see Alt rows) | not remapped here | not remapped here |
+| Shift+Up/Down | scroll line up/down (mintty native) | not used (pi scrolls itself; see Alt rows) | not remapped here | not remapped here |
+| Shift+Left/Right | hop to previous/next prompt (mintty native, uses the planted prompt markers) | moves the cursor (pi input) | not remapped here | not remapped here |
+| Alt+PageUp/Down | no mintty binding: the combo reaches the app | scroll transcript line up/down (pi keybindings) | not bound | not bound |
+| Alt+Home/End | no mintty binding: the combo reaches the app | transcript top/bottom (pi keybindings) | not bound | not bound |
+| Alt+Shift+PageUp/Down | no mintty binding: the combo reaches the app | previous/next prompt hop (pi keybindings) | not bound | not bound |
+| ScrollLock | freeze output: view stays put while output streams; press again to release (mintty native; ScrollLock LED reflects the state) | same terminal-level freeze still works | n/a | n/a |
 | Ctrl+Backspace | delete word backward (via the mintty ^W remap) | delete word backward (via the mintty ^W remap) | delete word (native) | delete word (native) |
 
 ## Known quirks
@@ -53,14 +58,29 @@ transcript navigation and word deletion inside the terminal.
 - **Windows Terminal Ctrl+C pass-through**: WT's copy action passes unhandled
   Ctrl+C to the shell when nothing is selected; Ctrl+Shift+C is the explicit
   interrupt everywhere.
-- **Full-screen apps own the screen**: Alt+scroll keys work at the bash prompt
-  and scroll mintty's scrollback; full-screen apps (pi, vim) own the screen,
-  so use the app's own navigation (inside pi, the Alt keys work via pi's
-  keybindings). VS Code's terminal keeps its own buffer which is why the same
-  keys appear to work there in all contexts.
-- **Right Alt works like left Alt**: `AltGrIsAlsoAlt=yes` makes right Alt act
-  as an Alt modifier for all the Alt-key bindings (scroll keys, prompt hops),
-  while AltGr character composition still works as before.
+- **Full-screen apps own the screen**: scrolling is mintty-native at the bash
+  prompt (Shift+PageUp/Down pages, Shift+Up/Down lines, Shift+Left/Right
+  prompt hops); full-screen apps (pi, vim) own the screen, so use the app's
+  own navigation (inside pi, the Alt keys work via pi's keybindings, which the
+  terminal passes through). VS Code's terminal keeps its own buffer which is
+  why scrolling works there in all contexts.
+- **ScrollLock freezes streaming output**: press ScrollLock once while output
+  streams and the view stays put, so you can scroll up and read while output
+  keeps accumulating; press ScrollLock again to release and return to live.
+  mintty drives the ScrollLock keyboard LED to reflect the lock state.
+- **The old mintty Alt scroll bindings never worked**: the previous
+  `A+Prior/A+Next/A+Home/A+End/AS+Prior/AS+Next` KeyFunctions entries were
+  dead in this mintty 3.8.1 build. A probe that injects the keys into a live
+  window showed Alt+PageUp/Alt+Home passing through unbound in every config
+  variant, including the original one that shipped them, while Ctrl+C stayed
+  bound (probe evidence: `pi-setup(chat)/.pi/plans/scroll-keys-diagnosis.md`).
+  The dead entries are removed; they were replaced by the native Shift keys
+  above, not by new mintty bindings.
+- **Right Alt already acts as Alt natively**: on this layout the right Alt key
+  emits plain Alt encodings (probe-proven: right-Alt+PageUp arrives as
+  `^[[5;3~`, right-Alt+U as `^[u`, with no config line involved), so the old
+  `AltGrIsAlsoAlt=yes` line was dropped as redundant. Unbound Alt combos
+  passing through is exactly what lets pi bind them inside.
 - **Ctrl+Backspace deletes a word via a ^W remap**: mintty sends Ctrl+Backspace
   as plain byte 0x08, the same byte as Backspace, and outside Windows Terminal
   pi reads that as a single-character backspace. The minttyrc therefore remaps
